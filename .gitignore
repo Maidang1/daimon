@@ -9,3 +9,5 @@ dsh-home/profiles/*/.plugin-manager/
 # misc
 node_modules/
 .DS_Store
+__pycache__/
+*.pyc
