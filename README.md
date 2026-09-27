@@ -1,6 +1,6 @@
 # my-agent
 
-基于 DeepSeek Harness (dsh) 的自定义 Web 聊天 agent。组合方式：官方 `web` 模板裁剪 + RLM Python 工具，不 fork、不复制 dsh 源码，全部定制都在 profile 的 `cordis.patch.yml` 里。
+基于 DeepSeek Harness (dsh) 的自定义 Web 聊天 agent。组合方式：官方 `web` 模板裁剪 + RLM Python 工具，全部定制都在 profile 的 `cordis.patch.yml` 里。RLM 相关的两个未发布 npm 包（`dsh-rlm-kernel-python`、`dsh-tool-python`）已 vendor 到本仓库 `packages/` 下，不依赖外部源码目录。
 
 ## 运行
 
@@ -15,8 +15,11 @@ npx -y @deepseek-ai/dsh@next --profile myagent-web        # 输出带 token 的 
 
 ```
 my-agent/
+  packages/
+    rlm-kernel-python/       # vendor 自 deepseek-harness: RLM Python REPL kernel（含 lib 构建产物 + py 运行时）
+    tool-python/             # vendor 自 deepseek-harness: 暴露给模型的 python 工具
   dsh-home/profiles/myagent-web/
-    package.json             # bundle 列表: dsh-base + dsh-web-app + dsh-rlm-kernel-python + dsh-tool-python
+    package.json             # bundle 列表 + link:../../../packages/* 相对链接
     cordis.patch.yml         # 全部定制：功能裁剪 + preset 同步裁剪 + 端口覆盖
 ```
 
@@ -28,7 +31,7 @@ my-agent/
 
 模型唯一的执行工具是 `python`（持久 REPL，kernel 内置 `bash()` 覆盖 shell 需求）。注意 kernel 内 `bash()` 由 Python 进程直接起子进程，不经过 dsh 的 bash sandbox 策略，权限等同宿主进程。
 
-Python 工具来自 link 安装的 `@deepseek-ai/dsh-rlm-kernel-python` + `@deepseek-ai/dsh-tool-python`（未发布 npm，链接自 ../deepseek-harness 仓库；仓库 `pnpm run build` 后生效）。未装 `rlm-bindings`（硬依赖已裁掉的 subagent 服务）。
+Python 工具来自 link 安装的 `@deepseek-ai/dsh-rlm-kernel-python` + `@deepseek-ai/dsh-tool-python`（未发布 npm，已 vendor 到 `packages/`，含构建产物 `lib/`，开箱即用）。未装 `rlm-bindings`（硬依赖已裁掉的 subagent 服务）。
 
 ## 已知边界
 
