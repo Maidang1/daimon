@@ -1,0 +1,16 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: false
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      '@deepseek-ai/dsh-rlm-kernel-python':
+        specifier: link:/Users/bytedance/codes/open-source/deepseek-harness/packages/rlm/rlm-kernel-python
+        version: link:../../../../deepseek-harness/packages/rlm/rlm-kernel-python
+      '@deepseek-ai/dsh-tool-python':
+        specifier: link:/Users/bytedance/codes/open-source/deepseek-harness/packages/rlm/tool-python
+        version: link:../../../../deepseek-harness/packages/rlm/tool-python

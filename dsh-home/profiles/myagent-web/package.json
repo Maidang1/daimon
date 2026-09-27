@@ -1,0 +1,18 @@
+{
+  "name": "dsh-profile-myagent-web",
+  "private": true,
+  "dependencies": {
+    "@deepseek-ai/dsh-rlm-kernel-python": "link:/Users/bytedance/codes/open-source/deepseek-harness/packages/rlm/rlm-kernel-python",
+    "@deepseek-ai/dsh-tool-python": "link:/Users/bytedance/codes/open-source/deepseek-harness/packages/rlm/tool-python"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app",
+        "@deepseek-ai/dsh-rlm-kernel-python",
+        "@deepseek-ai/dsh-tool-python"
+      ]
+    }
+  }
+}

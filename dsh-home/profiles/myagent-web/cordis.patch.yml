@@ -1,0 +1,258 @@
+# --- preset 子插件同步裁剪 (preset 是 Agent 作用域的插件组合, loader patch 够不到, 整体替换 config) ---
+- id: preset-standard
+  name: '@deepseek-ai/dsh-agent-preset'
+  config:
+    id: standard
+    order: 1
+    plugins:
+      - id: persona
+        name: '@deepseek-ai/dsh-persona'
+        config:
+          suffix: Your working directory is {{cwd}}.
+          prefix: You are a coding agent powered by the {{model}} model.
+      - id: agent-instructions
+        name: '@deepseek-ai/dsh-agent-instructions'
+        config:
+          maxBytes: 65536
+      - id: tool-fs
+        name: '@deepseek-ai/dsh-tool-fs'
+      - id: tool-fs-search
+        name: '@deepseek-ai/dsh-tool-fs-search'
+        config:
+          sampleOverCapGlobResults: false
+      - id: compaction
+        name: cordis:group
+        group: true
+        isolate:
+          compaction: true
+          toolResultPruner: true
+        config:
+          - id: compaction-basic
+            name: '@deepseek-ai/dsh-compaction-basic'
+          - id: command-compact
+            name: '@deepseek-ai/dsh-command-compact'
+          - id: tool-result-pruner
+            name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+            config:
+              thresholdChars: 8192
+              headChars: 4096
+              tailChars: 1024
+      - id: tool-ask-user
+        name: '@deepseek-ai/dsh-tool-ask-user'
+      - id: tool-todo
+        name: '@deepseek-ai/dsh-tool-todo'
+        config:
+          allowParallelInProgress: true
+      - id: present
+        name: '@deepseek-ai/dsh-tool-present'
+# == @deepseek-ai/dsh-web-app, patched by /Users/bytedance/codes/open-source/my-agent/dsh-home/profiles/myagent-web/cordis.patch.yml
+
+- id: preset-minimal
+  name: '@deepseek-ai/dsh-agent-preset'
+  config:
+    id: minimal
+    order: 3
+    plugins:
+      - id: persona
+        name: '@deepseek-ai/dsh-persona'
+        config:
+          prefix: You are a helpful software engineer assistant.
+          complete: true
+          includeRuntimeContext: false
+# == @deepseek-ai/dsh-web-app, patched by /Users/bytedance/codes/open-source/my-agent/dsh-home/profiles/myagent-web/cordis.patch.yml
+
+# --- shell 权限预设 (bash 工具已移除, 无 shell 服务) ---
+- id: permission
+  disabled: true
+- id: ui-permission
+  disabled: true
+
+# --- bash 工具 (Python kernel 内置 bash() 已覆盖) ---
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: bash-sandbox
+  disabled: true
+- id: pwsh-sandbox
+  disabled: true
+
+# Trim layer: keep web chat + core agent, disable whole feature blocks.
+# Re-enable any block by deleting its entries.
+
+# --- 定时任务 ---
+- id: schedule
+  disabled: true
+- id: ui-schedule
+  disabled: true
+
+# --- 子代理 ---
+- id: subagent
+  disabled: true
+- id: subagent-spawn-in-process
+  disabled: true
+- id: subagent-fork-in-process
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: tool-subagent-control
+  disabled: true
+- id: tool-subagent-list-agents
+  disabled: true
+- id: ui-subagent
+  disabled: true
+- id: subagent-model-selection-settings
+  disabled: true
+- id: ui-settings-subagent
+  disabled: true
+
+# --- 目标 (/goal) ---
+- id: goal
+  disabled: true
+- id: goal-round-driver
+  disabled: true
+- id: command-goal
+  disabled: true
+- id: tool-goal
+  disabled: true
+- id: ui-goal
+  disabled: true
+
+# --- 计划模式 ---
+- id: plan-mode
+  disabled: true
+- id: ui-plan
+  disabled: true
+
+# --- 后台任务 ---
+- id: jobs
+  disabled: true
+- id: tool-jobs
+  disabled: true
+- id: ui-jobs
+  disabled: true
+- id: job-controller
+  disabled: true
+
+# --- PTC / 工作流 ---
+- id: ptc-runtime
+  disabled: true
+- id: workflow-ptc
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: ui-workflow-run
+  disabled: true
+- id: preset-ptc
+  disabled: true
+- id: preset-cordis
+  disabled: true
+
+# --- MCP ---
+- id: mcp-resources
+  disabled: true
+
+# --- Web 搜索/抓取 ---
+- id: web
+  disabled: true
+- id: web-search-deepseek
+  disabled: true
+- id: web-fetch-http
+  disabled: true
+- id: tool-web
+  disabled: true
+- id: ui-settings-web-search
+  disabled: true
+
+# --- 技能系统 ---
+- id: skill
+  disabled: true
+- id: skill-filesystem
+  disabled: true
+- id: skill-badge
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: ui-skill
+  disabled: true
+
+# --- 消息反馈 ---
+- id: message-feedback
+  disabled: true
+- id: ui-message-feedback
+  disabled: true
+
+# --- 文档预览 ---
+- id: office-to-pdf
+  disabled: true
+- id: ui-sidebar-documentpreview
+  disabled: true
+
+# --- open-in-app ---
+- id: open-in-app
+  disabled: true
+- id: ui-open-in-app
+  disabled: true
+
+# --- 会话导出 ---
+- id: session-log-download
+  disabled: true
+
+# --- OTEL 遥测 ---
+- id: session-telemetry-otel
+  disabled: true
+
+# --- 热重载 (生产不需要) ---
+- id: hmr
+  disabled: true
+- id: client-hmr
+  disabled: true
+
+# --- 插件管理器 ---
+- id: tool-plugin-manager
+  disabled: true
+- id: plugin-manager
+  disabled: true
+- id: ui-plugin-manager
+  disabled: true
+- id: plugin-inventory
+  disabled: true
+- id: ui-settings-plugin-inventory
+  disabled: true
+- id: ui-settings-plugins
+  disabled: true
+
+# --- Cordis 开发工具 ---
+- id: cordis-host-runner
+  disabled: true
+- id: cordis-inspect-providers
+  disabled: true
+- id: cordis-client-runner
+  disabled: true
+- id: ui-cordis
+  disabled: true
+
+# --- 其他模型提供商 (只留 DeepSeek) ---
+- id: llm-pi-ai
+  disabled: true
+
+# --- ralph 循环工具 ---
+- id: tool-ralph
+  disabled: true
+
+# --- 端口: 本机 3080 已被占用, 用 3180 ---
+- id: webserver
+  config:
+    host: 127.0.0.1
+    port: 3180
+- id: ui-settings-general
+  name: "@deepseek-ai/dsh-client-ui-settings-general"
+  config:
+    welcomeNoticeVersion: 2026-08-13.1
+- id: agent-preset-registry
+  name: "@deepseek-ai/dsh-agent-preset-registry"
+  config:
+    default: standard
+    selectedDefault: minimal

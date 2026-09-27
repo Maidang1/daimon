@@ -1,0 +1,11 @@
+# dsh runtime data (credentials, sessions, logs, caches)
+dsh-home/.credentials.yaml
+dsh-home/.anonymous-user-id
+dsh-home/sessions/
+dsh-home/storages/
+dsh-home/logs/
+dsh-home/profiles/*/.plugin-manager/
+
+# misc
+node_modules/
+.DS_Store
