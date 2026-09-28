@@ -18,7 +18,7 @@ import { BashNoticeBoard } from "./bash.js";
 import { createCompactHostHandlers } from "./compact.js";
 import { createGoalHostHandlers } from "./goal.js";
 import { HeartbeatScheduler, HeartbeatStore, createHeartbeatHostHandlers } from "./heartbeat.js";
-import { createMcpHostHandlers } from "./mcp.js";
+import { createMcpHostHandlers, readMcpServersFile } from "./mcp.js";
 import { createAgentMessageHostHandlers } from "./message.js";
 import { createModelInfoHostHandlers } from "./model-info.js";
 import { createAgentObserveHostHandlers } from "./observe.js";
@@ -31,6 +31,7 @@ export const inject = ['rlmKernel', 'subagents', 'llm', 'sessionQuery', 'agents'
 export const Config = z.object({
     providerName: z.string().default('spawn'),
     dshHome: z.string().default(''),
+    mcpServersFile: z.string().default(''),
 });
 /**
  * Register the host-request handlers on the kernel service.
@@ -89,7 +90,11 @@ export function apply(ctx, config = {}) {
         ...createGoalHostHandlers({ goals: ctx.goals }),
         ...createCompactHostHandlers({ compaction: scopedCompaction, usage: ctx.tokenMeter, models: ctx.llm }),
         ...createModelInfoHostHandlers({ models: ctx.llm }),
-        ...createMcpHostHandlers({}),
+        ...createMcpHostHandlers({
+            servers: () => readMcpServersFile(config.mcpServersFile === undefined || config.mcpServersFile.trim().length === 0
+                ? join(resolveDshHome(dshHome), 'mcp-servers.json')
+                : config.mcpServersFile),
+        }),
         ...createAgentMessageHostHandlers({ agents: ctx.agents, subagents: ctx.subagents, roster }),
         ...createAgentObserveHostHandlers({ agents: ctx.agents, subagents: ctx.subagents, roster, observations }),
         ...createHeartbeatHostHandlers({ heartbeats: scheduler }),

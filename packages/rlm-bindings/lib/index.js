@@ -1367,6 +1367,34 @@ function createHeartbeatHostHandlers(deps) {
 *
 * @module @deepseek-ai/dsh-rlm-bindings/mcp
 */
+/** Structural guard for one entry of the servers file: a plain object with a known transport. */
+function isMcpServerConfig(value) {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+	if (!("type" in value)) return false;
+	return value.type === "http" || value.type === "stdio";
+}
+/**
+* Reads the user-declared MCP server map from a JSON file. A missing,
+* unreadable, or structurally invalid file reads as an empty map, so a
+* broken file routes every server to the kernel's own "not declared" error
+* instead of failing the host. Re-read on every call, so editing the file
+* reaches the next kernel connection without a plugin restart.
+*
+* @param path - absolute path of the JSON file holding name → server config.
+* @returns the declared servers, or an empty map when none can be read.
+*/
+function readMcpServersFile(path) {
+	let parsed;
+	try {
+		parsed = JSON.parse(readFileSync(path, "utf8"));
+	} catch {
+		return {};
+	}
+	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
+	const servers = {};
+	for (const [name, value] of Object.entries(parsed)) if (isMcpServerConfig(value)) servers[name] = value;
+	return servers;
+}
 /**
 * Read the required `server` member of one `mcp.*` payload.
 *
@@ -2831,7 +2859,8 @@ const inject = [
 /** Validated plugin configuration for the RLM host bindings. */
 const Config = z.object({
 	providerName: z.string().default("spawn"),
-	dshHome: z.string().default("")
+	dshHome: z.string().default(""),
+	mcpServersFile: z.string().default("")
 });
 /**
 * Register the host-request handlers on the kernel service.
@@ -2882,7 +2911,7 @@ function apply(ctx, config = {}) {
 			models: ctx.llm
 		}),
 		...createModelInfoHostHandlers({ models: ctx.llm }),
-		...createMcpHostHandlers({}),
+		...createMcpHostHandlers({ servers: () => readMcpServersFile(config.mcpServersFile === void 0 || config.mcpServersFile.trim().length === 0 ? join(resolveDshHome(dshHome), "mcp-servers.json") : config.mcpServersFile) }),
 		...createAgentMessageHostHandlers({
 			agents: ctx.agents,
 			subagents: ctx.subagents,

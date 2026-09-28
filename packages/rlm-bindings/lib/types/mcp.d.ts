@@ -58,6 +58,17 @@ export type McpStdioServerConfig = {
 };
 /** User-declared MCP server configuration the kernel connects with. */
 export type McpServerConfig = McpHttpServerConfig | McpStdioServerConfig;
+/**
+ * Reads the user-declared MCP server map from a JSON file. A missing,
+ * unreadable, or structurally invalid file reads as an empty map, so a
+ * broken file routes every server to the kernel's own "not declared" error
+ * instead of failing the host. Re-read on every call, so editing the file
+ * reaches the next kernel connection without a plugin restart.
+ *
+ * @param path - absolute path of the JSON file holding name → server config.
+ * @returns the declared servers, or an empty map when none can be read.
+ */
+export declare function readMcpServersFile(path: string): Record<string, McpServerConfig>;
 /** The composition pieces the MCP host handlers need, captured at load. */
 export interface McpBindingDeps {
     /**
