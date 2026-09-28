@@ -5,8 +5,7 @@
   "scripts": {
     "build": "turbo run build",
     "test": "turbo run test",
-    "typecheck": "turbo run typecheck",
-    "prepare": "pnpm build"
+    "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

@@ -6,6 +6,10 @@
 - 上游目录：`packages/rlm/*`
 - 上游版本：`0.1.7-rc.1`（git tag `dsh-v0.1.7-rc.1`，commit SHA `46a7f68b0922371ce7144b668b90e377d8e799f4`）
 
+> **源码与依赖的版本错位说明**：vendored 源码取自 rc.1 tag，但对上游 sibling 包的依赖（`@deepseek-ai/dsh-*`）钉在 `0.1.7-rc.2`。
+> 即本仓库运行的是"rc.1 的 RLM 源码 + rc.2 的 dsh 运行时"。编译面兼容性由 `pnpm typecheck` 与 26 个 vitest spec 兜底；
+> 上游发布新 rc 后，应从对应 tag 重新 vendor 并对齐依赖，消除该错位。
+
 ## 逐包清单
 
 ### `packages/rlm-bindings`（`@deepseek-ai/dsh-rlm-bindings`）

@@ -12,7 +12,6 @@ node_modules/
 .DS_Store
 __pycache__/
 *.pyc
-*.tsbuildinfo
 .turbo/
 
 # build output of vendored packages (rebuild with `pnpm build`)
