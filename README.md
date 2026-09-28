@@ -31,13 +31,13 @@ my-agent/
 
 ## 裁剪了什么
 
-官方 web 模板 182 行插件，patch 禁用 68 行 + 替换 2 个 preset config。保留：Web 聊天、核心 agent（`python` 工具、fs 工具、审批、设置/凭证、compaction、会话持久化）。裁掉：bash/pwsh 工具及其 sandbox、子代理、计划模式、/goal、定时任务、后台任务、PTC/工作流、MCP、Web 搜索、技能系统、插件管理器、OTEL 遥测、HMR、Cordis 开发工具、pi-ai 适配器等（分组注释见 patch 文件）。恢复某项：删掉对应分组。
+官方 web 模板 182 行插件，patch 禁用 61 行 + 替换 2 个 preset config。保留：Web 聊天、核心 agent（`python` 工具、fs 工具、审批、设置/凭证、compaction、会话持久化）、子代理 spawn 链路（核心服务 + spawn provider + `subagent`/`send_message`/`list_agents` 三个模型面工具，preset 内 delegation 组挂载）、goal 服务 + round driver（供 rlm-bindings 的 goal.* host wire）。裁掉：bash/pwsh 工具及其 sandbox、子代理 fork 链路与 UI、计划模式、/goal 命令与 goal 工具、定时任务、后台任务、PTC/工作流、MCP、Web 搜索、技能系统、插件管理器、OTEL 遥测、HMR、Cordis 开发工具、pi-ai 适配器等（分组注释见 patch 文件）。恢复某项：删掉对应分组。
 
 ## 工具集
 
 模型唯一的执行工具是 `python`（持久 REPL，kernel 内置 `bash()` 覆盖 shell 需求）。注意 kernel 内 `bash()` 由 Python 进程直接起子进程，不经过 dsh 的 bash sandbox 策略，权限等同宿主进程。
 
-Python 工具来自 link 安装的 `@deepseek-ai/dsh-rlm-kernel-python` + `@deepseek-ai/dsh-tool-python`（连同未发布的 `@deepseek-ai/dsh-rlm-kernel` 一起 vendor 到 `packages/`，含构建产物 `lib/`）。`rlm-bindings` 已 vendor 到 `packages/`（含 28 条 host wire：spawn/collect/goal/compact/mcp/agent_message/agent_observe/rlm_heartbeat/refine 等），但**未接线**：它 inject 的 subagents/goals/compaction/tokenMeter/agents 服务在 patch 里仍被裁。启用步骤：patch 里放开 subagent/goal/compaction/schedule 分组 → profile `package.json` 加 `link:../../../packages/rlm-bindings` → patch insert rlm-bindings 行。kernel 的 Python 侧要求宿主 `python3` 为 CPython 3.10+，且 `skill.py` 需要 `tyro`（模型 REPL 里用到的其他三方包需在宿主 Python 环境自行安装，kernel 不自动装包）。
+Python 工具来自 link 安装的 `@deepseek-ai/dsh-rlm-kernel-python` + `@deepseek-ai/dsh-tool-python`（连同未发布的 `@deepseek-ai/dsh-rlm-kernel` 一起 vendor 到 `packages/`，含构建产物 `lib/`）。`rlm-bindings` 已 vendor 并**已接线**（28 条 host wire：spawn/collect/goal/compact/mcp/agent_message/agent_observe/rlm_heartbeat/refine 等）：profile `package.json` 加了 `link:../../../packages/rlm-bindings` 并列入 bundles，包自带 `cordis.patch.yml` 自动 insert `rlm-bindings` 行（inject `rlmKernel/subagents/llm/sessionQuery/agents/goals/tokenMeter`，compaction 运行时经 `agentPresets.serviceFor` 从调用方 agent 的 preset 隔离域解析）。为它放开了 patch 里的 subagent 核心服务 + spawn provider + 三个模型面委托工具、goal 服务 + round driver（fork 链路、/goal 命令、goal 工具、schedule、全部 ui-* 仍裁；rlm_heartbeat 由 rlm-bindings 自带调度器实现，不依赖 schedule 插件）。`rlm-harness` 已 vendor 但未接线（无具体 provider）。kernel 的 Python 侧要求宿主 `python3` 为 CPython 3.10+，且 `skill.py` 需要 `tyro`（模型 REPL 里用到的其他三方包需在宿主 Python 环境自行安装，kernel 不自动装包）。
 
 ## 已知边界
 

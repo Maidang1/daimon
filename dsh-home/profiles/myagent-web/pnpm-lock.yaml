@@ -8,6 +8,12 @@ importers:
 
   .:
     dependencies:
+      '@deepseek-ai/dsh-rlm-bindings':
+        specifier: link:../../../packages/rlm-bindings
+        version: link:../../../packages/rlm-bindings
+      '@deepseek-ai/dsh-rlm-harness-local':
+        specifier: link:../../../packages/rlm-harness-local
+        version: link:../../../packages/rlm-harness-local
       '@deepseek-ai/dsh-rlm-kernel-python':
         specifier: link:../../../packages/rlm-kernel-python
         version: link:../../../packages/rlm-kernel-python

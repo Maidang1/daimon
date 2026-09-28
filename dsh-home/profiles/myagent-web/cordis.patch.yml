@@ -37,6 +37,22 @@
               thresholdChars: 8192
               headChars: 4096
               tailChars: 1024
+      # rlm-bindings 对齐 prime-agent 的委托面: spawn 系三个模型面工具
+      # (顶层 web-app patch 默认裁掉, preset 内重新挂载; fork/codex/claude-code 仍裁)
+      - id: delegation
+        name: cordis:group
+        group: true
+        config:
+          - id: tool-subagent-control
+            name: '@deepseek-ai/dsh-tool-subagent-control'
+          - id: tool-subagent-list-agents
+            name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+          - id: tool-subagent
+            name: '@deepseek-ai/dsh-tool-subagent'
+            config:
+              provider: spawn
+              toolName: subagent
+              backgroundMode: continuable
       - id: tool-ask-user
         name: '@deepseek-ai/dsh-tool-ask-user'
       - id: tool-todo
@@ -87,19 +103,13 @@
   disabled: true
 
 # --- 子代理 ---
-- id: subagent
-  disabled: true
-- id: subagent-spawn-in-process
-  disabled: true
+# 已恢复 (rlm-bindings 接线需要): subagent (ctx.subagents 核心服务),
+# subagent-spawn-in-process (注册 continuable provider 'spawn', 即 rlm-bindings 的默认 providerName),
+# tool-subagent / tool-subagent-control / tool-subagent-list-agents (模型面 spawn/控制/列举工具, 与 prime-agent 能力对齐).
+# 仍裁: fork 链路 (rlm-bindings 只走 spawn) 与全部 UI.
 - id: subagent-fork-in-process
   disabled: true
-- id: tool-subagent
-  disabled: true
 - id: tool-subagent-fork
-  disabled: true
-- id: tool-subagent-control
-  disabled: true
-- id: tool-subagent-list-agents
   disabled: true
 - id: ui-subagent
   disabled: true
@@ -108,11 +118,10 @@
 - id: ui-settings-subagent
   disabled: true
 
-# --- 目标 (/goal) ---
-- id: goal
-  disabled: true
-- id: goal-round-driver
-  disabled: true
+# --- 目标 ---
+# 已恢复 (rlm-bindings 接线需要): goal (ctx.goals 服务, goal.* host wire 的后端),
+# goal-round-driver (让已建 goal 继续驱动后续轮, 对齐 prime-agent 的 goal 语义).
+# 仍裁: /goal 命令、goal 工具与 UI (prime-agent 侧 goal 由 Python skill 经 host wire 管理, 无对应模型面工具).
 - id: command-goal
   disabled: true
 - id: tool-goal
@@ -256,3 +265,10 @@
   config:
     default: standard
     selectedDefault: minimal
+
+# --- RLM Python skills: 6 个移植自 prime-agent 的 skill 包 (goal/compact/refine/rlm_heartbeat/agent_message/agent_observe),
+# 随 vendored rlm-kernel-python 的 py/skills/ 发布; 宿主 python 零第三方依赖 ---
+- id: rlm-kernel-python
+  config:
+    pythonPath:
+      - /Users/bytedance/codes/open-source/my-agent/packages/rlm-kernel-python/py/skills
