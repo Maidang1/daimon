@@ -20,6 +20,8 @@ my-agent/
     rlm-kernel/              # vendor 自 deepseek-harness: RLM kernel 能力缝（未发布 npm）
     rlm-kernel-python/       # vendor 自 deepseek-harness: RLM Python REPL kernel（含 lib 构建产物 + py 运行时）
     tool-python/             # vendor 自 deepseek-harness: 暴露给模型的 python 工具（未发布 npm）
+    rlm-harness/             # vendor 自 deepseek-harness: continual harness 状态缝（未发布 npm；仓库内无具体 provider，未接线）
+    rlm-bindings/            # vendor 自 deepseek-harness: 28 条 host_request 宿主绑定（未发布 npm，见下）
   dsh-home/profiles/myagent-web/
     package.json             # bundle 列表 + link:../../../packages/* 相对链接
     cordis.patch.yml         # 全部定制：功能裁剪 + preset 同步裁剪 + 端口覆盖
@@ -35,7 +37,7 @@ my-agent/
 
 模型唯一的执行工具是 `python`（持久 REPL，kernel 内置 `bash()` 覆盖 shell 需求）。注意 kernel 内 `bash()` 由 Python 进程直接起子进程，不经过 dsh 的 bash sandbox 策略，权限等同宿主进程。
 
-Python 工具来自 link 安装的 `@deepseek-ai/dsh-rlm-kernel-python` + `@deepseek-ai/dsh-tool-python`（连同未发布的 `@deepseek-ai/dsh-rlm-kernel` 一起 vendor 到 `packages/`，含构建产物 `lib/`）。未装 `rlm-bindings`（硬依赖已裁掉的 subagent 服务）。kernel 的 Python 侧要求宿主 `python3` 为 CPython 3.10+，且 `skill.py` 需要 `tyro`（模型 REPL 里用到的其他三方包需在宿主 Python 环境自行安装，kernel 不自动装包）。
+Python 工具来自 link 安装的 `@deepseek-ai/dsh-rlm-kernel-python` + `@deepseek-ai/dsh-tool-python`（连同未发布的 `@deepseek-ai/dsh-rlm-kernel` 一起 vendor 到 `packages/`，含构建产物 `lib/`）。`rlm-bindings` 已 vendor 到 `packages/`（含 28 条 host wire：spawn/collect/goal/compact/mcp/agent_message/agent_observe/rlm_heartbeat/refine 等），但**未接线**：它 inject 的 subagents/goals/compaction/tokenMeter/agents 服务在 patch 里仍被裁。启用步骤：patch 里放开 subagent/goal/compaction/schedule 分组 → profile `package.json` 加 `link:../../../packages/rlm-bindings` → patch insert rlm-bindings 行。kernel 的 Python 侧要求宿主 `python3` 为 CPython 3.10+，且 `skill.py` 需要 `tyro`（模型 REPL 里用到的其他三方包需在宿主 Python 环境自行安装，kernel 不自动装包）。
 
 ## 已知边界
 
