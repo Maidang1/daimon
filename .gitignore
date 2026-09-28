@@ -14,3 +14,6 @@ __pycache__/
 *.pyc
 *.tsbuildinfo
 .turbo/
+
+# build output of vendored packages (rebuild with `pnpm build`)
+packages/*/lib/

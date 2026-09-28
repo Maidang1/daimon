@@ -96,6 +96,7 @@ mcp.call_tool("名称", "工具名", {...})
 
 ```sh
 cd <本仓库>
+pnpm install && pnpm build   # 首次：装依赖并从 src 构建 packages/*/lib
 export DSH_HOME="$PWD/dsh-home"
 npx -y @deepseek-ai/dsh@next --profile daimon-web
 ```
@@ -106,7 +107,7 @@ npx -y @deepseek-ai/dsh@next --profile daimon-web
 
 首次使用在 Web 设置页填 DeepSeek API key，凭证由 `credentials` 插件托管。
 
-克隆后在仓库根目录执行一次 `pnpm install`（为 `packages/*` 安装 `schemastery` / `cordis` / `dsh-tools` 等已发布依赖；vendored 包之间的互相引用保留 `workspace:*`（由根 pnpm-workspace.yaml 解析为 link），对上游已发布包的依赖使用固定版本号）。
+`packages/*` 的 `lib/` 是构建产物、不进 git（`pnpm build` 经 turbo 用 `tsc → tsdown` 从 `src/` 重建，测试为 `pnpm test`）；依赖方面，vendored 包之间的互相引用保留 `workspace:*`（由根 pnpm-workspace.yaml 解析为 link），对上游已发布包的依赖使用固定版本号。
 
 ---
 
