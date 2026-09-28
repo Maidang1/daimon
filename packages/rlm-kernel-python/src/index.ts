@@ -16,7 +16,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import type { Writable } from 'node:stream'
 import { createInterface } from 'node:readline'
-import { delimiter } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import type { Volatile } from '@deepseek-ai/cordis'
@@ -288,7 +288,7 @@ export class PythonRlmKernel extends RlmKernel {
 
   private async start(entry: KernelEntry, extraPath: readonly string[]): Promise<void> {
     const interpreter = resolvePythonInterpreter(this.config.pythonBin.get())
-    const searchPath = [pythonSourceDir(), ...this.config.pythonPath.get(), ...extraPath]
+    const searchPath = [pythonSourceDir(), join(pythonSourceDir(), 'skills'), ...this.config.pythonPath.get(), ...extraPath]
       .filter(directory => directory !== '')
       .join(delimiter)
     // Typed as the wide ChildProcess, not the stdio-tuple overload's narrow

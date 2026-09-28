@@ -50,5 +50,14 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
+  },
+  "devDependencies": {
+    "vitest": "^3.2.7",
+    "@deepseek-ai/dsh-agent-loop-testkit": "0.1.7-rc.2"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsdown",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   }
 }

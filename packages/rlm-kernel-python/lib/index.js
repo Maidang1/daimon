@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import { delimiter } from "node:path";
+import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import z from "@deepseek-ai/schemastery";
 import { RLM_MINIMUM_PYTHON_MAJOR, RLM_MINIMUM_PYTHON_MINOR, RlmKernel, RlmKernelError, encodeRlmRequest, parseRlmEvent } from "@deepseek-ai/dsh-rlm-kernel";
@@ -211,7 +211,8 @@ var PythonRlmKernel = class extends RlmKernel {
 		}, BOOTSTRAP_REQUEST_ID);
 		const cell = await settled;
 		if (cell.status === "ok") return;
-		throw new RlmKernelError(`rlm-kernel-python: runtime bootstrap failed: ${[cell.error?.evalue, cell.stderr.trim()].filter((text) => text !== void 0 && text !== "").join("\n")}`);
+		const details = [cell.error?.evalue, cell.stderr.trim()].filter((text) => text !== void 0 && text !== "").join("\n");
+		throw new RlmKernelError(`rlm-kernel-python: runtime bootstrap failed: ${details}`);
 	}
 	/**
 	* Stop and forget the kernel a session owns, when it has one.
@@ -250,6 +251,7 @@ var PythonRlmKernel = class extends RlmKernel {
 		const interpreter = resolvePythonInterpreter(this.config.pythonBin.get());
 		const searchPath = [
 			pythonSourceDir(),
+			join(pythonSourceDir(), "skills"),
 			...this.config.pythonPath.get(),
 			...extraPath
 		].filter((directory) => directory !== "").join(delimiter);

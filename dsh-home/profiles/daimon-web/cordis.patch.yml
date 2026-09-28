@@ -267,8 +267,5 @@
     selectedDefault: minimal
 
 # --- RLM Python skills: 6 个移植自 prime-agent 的 skill 包 (goal/compact/refine/rlm_heartbeat/agent_message/agent_observe),
-# 随 vendored rlm-kernel-python 的 py/skills/ 发布; 宿主 python 零第三方依赖 ---
-- id: rlm-kernel-python
-  config:
-    pythonPath:
-      - /Users/bytedance/codes/open-source/daimon/packages/rlm-kernel-python/py/skills
+# 随 vendored rlm-kernel-python 的 py/skills/ 发布; kernel 会自行把 py/skills 加进 PYTHONPATH, 无需此处配置;
+# 宿主 python 零第三方依赖 ---

@@ -335,10 +335,12 @@ var LocalHarnessRefiner = class extends HarnessRefiner {
 	async refine(proposal, scope) {
 		return this.mutate(scope, (state, now) => {
 			const storeScope = harnessStoreScope(scope);
-			const next = applyRefinement(state, {
+			const scoped = {
 				...proposal,
 				entries: proposal.entries.map((input) => withStoreScope(input, storeScope, state.entries[input.kind][input.id]))
-			}, now, mintRefinementId(state));
+			};
+			const id = mintRefinementId(state);
+			const next = applyRefinement(state, scoped, now, id);
 			const event = next.refinements.at(-1);
 			/* v8 ignore next 3 -- applyRefinement always appends exactly one event */
 			if (event === void 0) throw new HarnessStateError("harness refinement recorded no event");

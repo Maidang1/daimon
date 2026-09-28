@@ -1,0 +1,1 @@
+- Changed: the kernel now always prepends `<pkg>/py/skills` to the child's PYTHONPATH, next to `py/` itself. Skills bundled in the package no longer require callers to inject an absolute `pythonPath`, which was machine-specific and unportable.

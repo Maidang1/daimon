@@ -1,57 +1,12 @@
 {
-  "extends": "../../../tsconfig.base.json",
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "lib/types"
+    "outDir": "lib/types",
+    "incremental": true,
+    "tsBuildInfoFile": "./lib/tsconfig.tsbuildinfo"
   },
   "include": [
     "src"
-  ],
-  "references": [
-    {
-      "path": "../../../vendor/cosmokit"
-    },
-    {
-      "path": "../../../vendor/cordis"
-    },
-    {
-      "path": "../../../vendor/schemastery"
-    },
-    {
-      "path": "../../compaction/compaction"
-    },
-    {
-      "path": "../../core/agent"
-    },
-    {
-      "path": "../../core/session"
-    },
-    {
-      "path": "../../goal/goal"
-    },
-    {
-      "path": "../../preset/agent-preset-registry"
-    },
-    {
-      "path": "../../llm/llm"
-    },
-    {
-      "path": "../../llm/token-meter"
-    },
-    {
-      "path": "../../session-query/session-query"
-    },
-    {
-      "path": "../../subagent/subagent"
-    },
-    {
-      "path": "../../util/home-paths"
-    },
-    {
-      "path": "../../util/values"
-    },
-    {
-      "path": "../rlm-kernel"
-    }
   ]
 }

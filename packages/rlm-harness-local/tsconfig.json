@@ -1,33 +1,12 @@
 {
-  "extends": "../../../tsconfig.base.json",
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "lib/types"
+    "outDir": "lib/types",
+    "incremental": true,
+    "tsBuildInfoFile": "./lib/tsconfig.tsbuildinfo"
   },
   "include": [
     "src"
-  ],
-  "references": [
-    {
-      "path": "../../../vendor/cosmokit"
-    },
-    {
-      "path": "../../../vendor/cordis"
-    },
-    {
-      "path": "../../../vendor/schemastery"
-    },
-    {
-      "path": "../../core/session"
-    },
-    {
-      "path": "../../util/atomic-write"
-    },
-    {
-      "path": "../../util/home-paths"
-    },
-    {
-      "path": "../rlm-harness"
-    }
   ]
 }

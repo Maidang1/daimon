@@ -638,7 +638,7 @@ function nextCronRunAfter(expression, after) {
 	const candidate = new Date(after.getTime());
 	candidate.setSeconds(0, 0);
 	candidate.setMinutes(candidate.getMinutes() + 1);
-	const deadline = candidate.getTime() + 366 * 24 * 60 * ONE_MINUTE_MS;
+	const deadline = candidate.getTime() + 527040 * ONE_MINUTE_MS;
 	while (candidate.getTime() <= deadline) {
 		if (matchesCronFields(candidate, fields)) return candidate;
 		candidate.setMinutes(candidate.getMinutes() + 1);
@@ -1436,7 +1436,8 @@ function createMcpHostHandlers(deps) {
 	};
 	const beginLogin = deps.beginLogin;
 	if (beginLogin !== void 0) handlers["mcp.begin_login"] = async (request) => {
-		await beginLogin(serverField(request.data, "mcp.begin_login"));
+		const server = serverField(request.data, "mcp.begin_login");
+		await beginLogin(server);
 		return ok({});
 	};
 	return handlers;

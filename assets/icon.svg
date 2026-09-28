@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F6F8FB"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3B82F6"/>
+      <stop offset="0.55" stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#1E40AF"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.55" r="0.5">
+      <stop offset="0" stop-color="#60A5FA" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#60A5FA" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <circle cx="256" cy="280" r="210" fill="url(#glow)"/>
+
+  <!-- 鲸鱼身体 + 尾巴 -->
+  <path d="M120 295
+           C120 215 185 170 270 172
+           C335 174 385 205 405 250
+           C420 215 455 210 475 245
+           C490 275 475 310 445 315
+           C465 335 455 365 420 365
+           C390 365 385 335 395 310
+           C385 360 335 392 265 398
+           C190 404 120 365 120 295 Z"
+        fill="url(#body)"/>
+
+  <!-- 肚皮 -->
+  <path d="M170 335
+           C170 310 240 303 290 315
+           C330 325 310 375 250 379
+           C195 383 170 360 170 335 Z"
+        fill="#DBEAFE"/>
+
+  <!-- 身体高光 -->
+  <ellipse cx="205" cy="212" rx="58" ry="30" fill="#FFFFFF" opacity="0.13" transform="rotate(-12 205 212)"/>
+
+  <!-- 眼睛 -->
+  <circle cx="218" cy="256" r="31" fill="#FFFFFF"/>
+  <circle cx="222" cy="256" r="15" fill="#0F172A"/>
+  <circle cx="228" cy="250" r="7" fill="#FFFFFF"/>
+
+  <!-- 嘴巴 -->
+  <path d="M202 318 Q228 336 262 322" fill="none" stroke="#0F172A" stroke-width="5.5" stroke-linecap="round"/>
+
+  <!-- 喷水 + Python 提示符 -->
+  <circle cx="332" cy="158" r="11" fill="#38BDF8"/>
+  <circle cx="354" cy="120" r="9" fill="#38BDF8"/>
+  <path d="M342 74 L371 90 L342 106 Z" fill="#FACC15" stroke="#FACC15" stroke-width="8" stroke-linejoin="round"/>
+  <rect x="374" y="94" width="26" height="8" rx="4" fill="#FACC15"/>
+</svg>

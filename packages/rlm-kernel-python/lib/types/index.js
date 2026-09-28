@@ -14,7 +14,7 @@
  */
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { delimiter } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import z from '@deepseek-ai/schemastery';
 import { encodeRlmRequest, parseRlmEvent, RlmKernel, RlmKernelError, } from '@deepseek-ai/dsh-rlm-kernel';
@@ -199,7 +199,7 @@ export class PythonRlmKernel extends RlmKernel {
     }
     async start(entry, extraPath) {
         const interpreter = resolvePythonInterpreter(this.config.pythonBin.get());
-        const searchPath = [pythonSourceDir(), ...this.config.pythonPath.get(), ...extraPath]
+        const searchPath = [pythonSourceDir(), join(pythonSourceDir(), 'skills'), ...this.config.pythonPath.get(), ...extraPath]
             .filter(directory => directory !== '')
             .join(delimiter);
         // Typed as the wide ChildProcess, not the stdio-tuple overload's narrow
