@@ -61,7 +61,7 @@
           allowParallelInProgress: true
       - id: present
         name: '@deepseek-ai/dsh-tool-present'
-# == @deepseek-ai/dsh-web-app, patched by /Users/bytedance/codes/open-source/my-agent/dsh-home/profiles/myagent-web/cordis.patch.yml
+# == @deepseek-ai/dsh-web-app, patched by /Users/bytedance/codes/open-source/daimon/dsh-home/profiles/daimon-web/cordis.patch.yml
 
 - id: preset-minimal
   name: '@deepseek-ai/dsh-agent-preset'
@@ -75,7 +75,7 @@
           prefix: You are a helpful software engineer assistant.
           complete: true
           includeRuntimeContext: false
-# == @deepseek-ai/dsh-web-app, patched by /Users/bytedance/codes/open-source/my-agent/dsh-home/profiles/myagent-web/cordis.patch.yml
+# == @deepseek-ai/dsh-web-app, patched by /Users/bytedance/codes/open-source/daimon/dsh-home/profiles/daimon-web/cordis.patch.yml
 
 # --- shell 权限预设 (bash 工具已移除, 无 shell 服务) ---
 - id: permission
@@ -271,4 +271,4 @@
 - id: rlm-kernel-python
   config:
     pythonPath:
-      - /Users/bytedance/codes/open-source/my-agent/packages/rlm-kernel-python/py/skills
+      - /Users/bytedance/codes/open-source/daimon/packages/rlm-kernel-python/py/skills

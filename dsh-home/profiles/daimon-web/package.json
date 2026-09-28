@@ -1,5 +1,5 @@
 {
-  "name": "dsh-profile-myagent-web",
+  "name": "dsh-profile-daimon-web",
   "private": true,
   "dependencies": {
     "@deepseek-ai/dsh-rlm-kernel-python": "link:../../../packages/rlm-kernel-python",
