@@ -5,7 +5,8 @@
   "scripts": {
     "build": "turbo run build",
     "test": "turbo run test",
-    "typecheck": "turbo run typecheck"
+    "typecheck": "turbo run typecheck",
+    "start": "DSH_HOME=\"$PWD/dsh-home\" npx -y @deepseek-ai/dsh@0.1.7-rc.2 --profile daimon-web"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

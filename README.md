@@ -97,11 +97,10 @@ mcp.call_tool("名称", "工具名", {...})
 ```sh
 cd <本仓库>
 pnpm install && pnpm build   # 首次：装依赖并从 src 构建 packages/*/lib
-export DSH_HOME="$PWD/dsh-home"
-npx -y @deepseek-ai/dsh@next --profile daimon-web
+pnpm start                   # 等价于 DSH_HOME=$PWD/dsh-home npx -y @deepseek-ai/dsh@0.1.7-rc.2 --profile daimon-web
 ```
 
-其中 `DSH_HOME` 指向的是仓库内自带的 `dsh-home` 目录（profile、会话、凭证等运行时数据都在里面）。
+dsh CLI 固定为 `0.1.7-rc.2`（与 vendored 包依赖的 `@deepseek-ai/dsh-*` 钉版一致，不用浮动的 `@next`）。其中 `DSH_HOME` 指向的是仓库内自带的 `dsh-home` 目录（profile、会话、凭证等运行时数据都在里面）。
 
 运行后输出一个带 token 的 URL，浏览器打开即可（监听 `127.0.0.1:3180`）。
 
