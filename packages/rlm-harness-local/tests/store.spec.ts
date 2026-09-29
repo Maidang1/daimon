@@ -264,3 +264,36 @@ describe('serializeHarnessState and saveHarnessState', () => {
     expect(serializeHarnessState(parseHarnessState('{}', 'local', NOW)).endsWith('\n')).toBe(true)
   })
 })
+
+describe('snake_case timestamps written by the Python runtime', () => {
+  const PY_CREATED = '2020-01-01T00:00:00.000Z'
+  const PY_UPDATED = '2020-02-02T00:00:00.000Z'
+
+  it('keeps an entry\'s snake_case timestamps and version instead of stamping the load clock', () => {
+    const state = parseHarnessState(JSON.stringify({
+      entries: { memory: { a: { title: 't', content: 'c', created_at: PY_CREATED, updated_at: PY_UPDATED, version: 7, reference: { type: 'python' } } } },
+      refinements: [],
+    }), 'local', NOW)
+    const entry = state.entries.memory['a']
+    expect(entry?.createdAt).toBe(PY_CREATED)
+    expect(entry?.updatedAt).toBe(PY_UPDATED)
+    expect(entry?.version).toBe(7)
+    expect(entry?.reference).toEqual({ type: 'python' })
+  })
+
+  it('prefers camelCase over snake_case when both are present', () => {
+    const state = parseHarnessState(JSON.stringify({
+      entries: { memory: { a: { title: 't', content: 'c', createdAt: NOW, created_at: PY_CREATED } } },
+      refinements: [],
+    }), 'local', NOW)
+    expect(state.entries.memory['a']?.createdAt).toBe(NOW)
+  })
+
+  it('keeps a refinement event\'s snake_case timestamp', () => {
+    const state = parseHarnessState(JSON.stringify({
+      entries: {},
+      refinements: [{ id: 'r1', trigger: 't', changes: ['a'], created_at: PY_CREATED }],
+    }), 'local', NOW)
+    expect(state.refinements[0]?.createdAt).toBe(PY_CREATED)
+  })
+})

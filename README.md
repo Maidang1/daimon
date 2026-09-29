@@ -181,7 +181,7 @@ profile 的 bundle 为 `@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app` + 4 
 - **验证裁剪要开新会话**：旧会话历史冻结了旧工具 schema。
 - **typert 不能裁**：Web 的 workspace/session 控制器硬依赖。
 - web 会话用 zstd 压缩，与不压缩的 profile 不能混读同一批会话目录。
-- harness 与 prime-agent 的 snake_case 文件不互通，跨侧只走 host 接口。
+- 本仓库 Python kernel 与 TS harness refiner 共享同一 store 文件，按统一 `.lock` 协议串行读写；读取兼容历史 snake_case 时间戳。外部 prime-agent 的自有文件格式不据此认定互通。
 - refine 请求仅存进程内存，重启即丢。
 - 子进程不是安全边界，只约束资源形状。
 

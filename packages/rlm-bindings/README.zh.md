@@ -159,7 +159,7 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 - **`mcp.begin_login` is not registered by default** — 组合内没有交互式 OAuth 面，因此该 handler 整体不注册，由内核抛出自己的不支持请求错误；部署接入 `beginLogin` 回调后才有该 handler。
 - **`mcp.refresh` has no backing credential store by default** — 没有接入凭证存储时每次 refresh 都大声失败。`mcp.config` 从 `mcpServersFile`（默认 `<dshHome>/mcp-servers.json`）读取已声明的 server，每次请求重新读盘；不在该文件中的 server 读作未声明，由内核抛出自己的「未声明」`KeyError`。
 - **A goal's `token_budget` is validated but never enforced** — 目标底座按轮数而非 token 预算，被接受的预算直接丢弃；`tokens_used` 与 `time_used_seconds` 恒报零；以 `round-limit` 代码阻塞的目标映射为 `budget_limited`，其余阻塞映射为 `paused`。
-- **`compact.run` accepts but never forwards custom instructions** — 压缩 seam 不接受指令文本，排定的压缩不做预检压力检查，被压缩的会话除摘要留下的通知外不会自动 resume。
+- **`compact.run` rejects any non-empty custom instructions** — 压缩 seam 的 `compactNow` 不接受指令文本，因此非空 `instructions` 值会被显式拒绝（空串/纯空白视为无 focus 的空操作）；排定的压缩随后不做预检压力检查，被压缩的会话除摘要留下的通知外不会自动 resume。
 - **Refinement has no separate planner pass** — 轮次边界 steer 一条通知后由 agent 自己执行精炼；pending 请求留在进程内存里，宿主重启即丢弃。
 - **The heartbeat table is a plugin-private JSON file** — 心跳跨重启存活，过期的心跳在唤醒时立即补拍，但 resume 的心跳从 resume 时刻重新计拍；其他工具改动该文件可能将其损坏。
 - **A message target must be live** — `agent_message.send` 只解析驻留在本宿主内的会话；没有对非活跃目标的 cold resume，发送改以 not-live 错误失败。

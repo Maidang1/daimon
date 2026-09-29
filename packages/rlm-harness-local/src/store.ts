@@ -131,8 +131,11 @@ function loadEntry(id: string, kind: HarnessKind, raw: JsonValue | undefined, sc
   const storedTopic = record['topic']
   const storedScope = record['scope']
   const storedSource = record['source']
-  const storedCreatedAt = record['createdAt']
-  const storedUpdatedAt = record['updatedAt']
+  // The kernel runtime writes snake_case timestamps; accept either spelling so
+  // a store written by the Python runtime keeps its real history instead of
+  // being stamped with the load clock on every read.
+  const storedCreatedAt = record['createdAt'] ?? record['created_at']
+  const storedUpdatedAt = record['updatedAt'] ?? record['updated_at']
   const storedVersion = record['version']
   return {
     id,
@@ -175,7 +178,7 @@ function loadRefinement(raw: JsonValue, now: string): RefinementEvent | undefine
   }
   const evidence = record['evidence']
   const outcome = record['outcome']
-  const createdAt = record['createdAt']
+  const createdAt = record['createdAt'] ?? record['created_at']
   return {
     id,
     trigger,

@@ -121,6 +121,44 @@ describe('applyRefinement', () => {
     expect(second.entries.memory.a?.version).toBe(2)
     expect(second.refinements).toHaveLength(2)
   })
+
+  it('composes repeated writes to one new id within a proposal in application order', () => {
+    const state = applyRefinement(emptyHarnessState(), {
+      trigger: 't',
+      entries: [
+        entry('a', { reference: { type: 'python', import: 'ops' }, arguments: { model: 'fast' } }),
+        entry('a', { title: 'Refined' }), // omits reference/arguments/metadata
+      ],
+      evidence: '', outcome: '',
+    }, NOW, 'ref-1')
+    const stored = state.entries.memory.a
+    expect(stored.title).toBe('Refined')
+    expect(stored.version).toBe(2)
+    expect(stored.createdAt).toBe(NOW)
+    expect(stored.reference).toEqual({ type: 'python', import: 'ops' })
+    expect(stored.arguments).toEqual({ model: 'fast' })
+    expect(stored.metadata).toEqual({})
+    expect(state.refinements[0].changes).toEqual(['a', 'a'])
+  })
+
+  it('bumps an existing entry twice when rewritten within one proposal', () => {
+    const seeded = applyRefinement(emptyHarnessState(), {
+      trigger: 't', entries: [entry('a', { metadata: { note: 'seed' } })], evidence: '', outcome: '',
+    }, NOW, 'ref-1')
+    const state = applyRefinement(seeded, {
+      trigger: 't',
+      entries: [
+        entry('a', { content: 'Second' }),
+        entry('a', { content: 'Third' }), // omits metadata
+      ],
+      evidence: '', outcome: '',
+    }, '2026-09-27T00:00:00Z', 'ref-2')
+    const stored = state.entries.memory.a
+    expect(stored.content).toBe('Third')
+    expect(stored.version).toBe(3)
+    expect(stored.createdAt).toBe(NOW)
+    expect(stored.metadata).toEqual({ note: 'seed' })
+  })
 })
 
 describe('rollbackToEvent', () => {

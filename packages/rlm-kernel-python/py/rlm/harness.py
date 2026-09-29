@@ -9,6 +9,7 @@ Execution still belongs to Prime Agent's TypeScript host and the existing
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -19,6 +20,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 from typing import Any, Literal
+
+from rlm._harness_store import atomic_write, writer_lock
+from rlm._harness_wire import (
+    TIMESTAMP_ALIASES as _TIMESTAMP_ALIASES,
+    entry_to_wire as _entry_to_wire,
+    event_to_wire as _event_to_wire,
+    normalize_state_data,
+    wire_canonical as _wire_canonical_shape,
+)
 
 HarnessKind = Literal["prompt", "memory", "skill", "subagent"]
 HarnessScope = Literal["local", "global"]
@@ -199,7 +209,6 @@ class RefinementEvent:
 _ENTRY_FIELDS = {field.name for field in fields(HarnessEntry)}
 _REFINEMENT_FIELDS = {field.name for field in fields(RefinementEvent)}
 
-
 def _validate_python_skill_reference(reference: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(reference, dict):
         raise ValueError("skill entries require a Python reference")
@@ -211,6 +220,16 @@ def _validate_python_skill_reference(reference: dict[str, Any] | None) -> dict[s
     if not any(isinstance(normalized.get(key), str) and normalized[key] for key in ("callable", "call_pattern")):
         raise ValueError("skill reference requires a callable or call_pattern")
     return normalized
+
+
+class HarnessStateConflictError(RuntimeError):
+    """An explicit ``save()`` would overwrite another writer's commit.
+
+    Raised inside the writer lock when the on-disk state differs from the
+    snapshot this instance last loaded or committed. The in-memory state is left
+    untouched; callers must ``load()`` the fresh disk state and re-apply their
+    change instead of forcing the write.
+    """
 
 
 class HarnessState:
@@ -244,7 +263,14 @@ class HarnessState:
         # mtime of the file as of the last load/save, used to detect out-of-process
         # writes (e.g. the host `/refine` command) and avoid clobbering them.
         self._loaded_mtime: int | None = None
+        # Canonical wire-JSON of the disk state as of the last load/commit;
+        # an explicit save() refuses when it no longer matches the disk inside
+        # the lock, so it cannot silently clobber another writer's commit.
+        self._baseline: str | None = None
         self.load()
+
+    def _wire_canonical(self) -> str:
+        return _wire_canonical_shape(self.entries, self.refinements)
 
     def _ensure_local_writable(self) -> None:
         if self._local_write_error is not None:
@@ -270,9 +296,22 @@ class HarnessState:
         if self._disk_mtime() != self._loaded_mtime:
             self.load()
 
+    def _apply_disk_data(self, data: dict) -> None:
+        """Field-by-field normalize a parsed state file into this instance."""
+        self.entries, self.refinements = normalize_state_data(
+            data,
+            scope=self.scope,
+            kinds=_KINDS,
+            entry_fields=_ENTRY_FIELDS,
+            refinement_fields=_REFINEMENT_FIELDS,
+            entry_cls=HarnessEntry,
+            refinement_cls=RefinementEvent,
+        )
+
     def load(self) -> "HarnessState":
         if self.file_path is None or not self.file_path.exists():
             self._loaded_mtime = None
+            self._baseline = self._wire_canonical()
             return self
         mtime = self._disk_mtime()
         try:
@@ -286,66 +325,9 @@ class HarnessState:
         # string; coerce those to an empty object before attribute access.
         if not isinstance(data, dict):
             data = {}
-
-        entries: dict[HarnessKind, dict[str, HarnessEntry]] = {kind: {} for kind in _KINDS}
-        raw_entries = data.get("entries", {})
-        if isinstance(raw_entries, dict):
-            for kind in _KINDS:
-                raw_kind_entries = raw_entries.get(kind, {})
-                if not isinstance(raw_kind_entries, dict):
-                    continue
-                for entry_id, raw_entry in raw_kind_entries.items():
-                    if isinstance(raw_entry, dict):
-                        entry_data = {key: value for key, value in raw_entry.items() if key in _ENTRY_FIELDS}
-                        entry_data["id"] = str(entry_id)
-                        entry_data["kind"] = kind
-                        if not isinstance(entry_data.get("title"), str) or not isinstance(
-                            entry_data.get("content"), str
-                        ):
-                            continue
-                        if not isinstance(entry_data.get("path"), str):
-                            entry_data["path"] = "general"
-                        if entry_data.get("scope") not in ("local", "global"):
-                            entry_data["scope"] = self.scope
-                        if not isinstance(entry_data.get("source"), str):
-                            entry_data["source"] = "agent"
-                        version = entry_data.get("version", 1)
-                        if isinstance(version, str):
-                            try:
-                                version = int(version)
-                            except ValueError:
-                                version = 1
-                        if not isinstance(version, int):
-                            version = 1
-                        entry_data["version"] = version
-                        if not isinstance(entry_data.get("reference"), dict):
-                            entry_data["reference"] = {}
-                        if not isinstance(entry_data.get("arguments"), dict):
-                            entry_data["arguments"] = {}
-                        if not isinstance(entry_data.get("metadata"), dict):
-                            entry_data["metadata"] = {}
-                        entries[kind][str(entry_id)] = HarnessEntry(**entry_data)
-        self.entries = entries
-
-        self.refinements = []
-        raw_refinements = data.get("refinements", [])
-        if isinstance(raw_refinements, list):
-            for raw_event in raw_refinements:
-                if isinstance(raw_event, dict):
-                    event_data = {key: value for key, value in raw_event.items() if key in _REFINEMENT_FIELDS}
-                    if not isinstance(event_data.get("id"), str) or not isinstance(
-                        event_data.get("trigger"), str
-                    ):
-                        continue
-                    changes = event_data.get("changes")
-                    if isinstance(changes, str):
-                        event_data["changes"] = [changes]
-                    elif isinstance(changes, list):
-                        event_data["changes"] = [str(change) for change in changes]
-                    elif not isinstance(changes, list):
-                        continue
-                    self.refinements.append(RefinementEvent(**event_data))
+        self._apply_disk_data(data)
         self._loaded_mtime = mtime
+        self._baseline = self._wire_canonical()
         return self
 
     def _global_target(self, global_: bool, extra: dict[str, Any] | None = None) -> "HarnessState | None":
@@ -356,39 +338,83 @@ class HarnessState:
             return None
         return target
 
-    def save(self) -> "HarnessState":
+    @contextlib.contextmanager
+    def _mutating(self):
+        """Run one public mutation as a full load/apply/commit transaction.
+
+        Acquire the shared-writer lock (same protocol as the TS host's
+        `withFileLock`), reload the freshest disk state inside it, let the caller
+        apply its mutation to that state, then commit the whole result
+        atomically. Two writers can no longer both base their change on a stale
+        snapshot: only one holds the lock at a time, and every commit starts
+        from whatever the previous writer left on disk.
+        """
+        self._ensure_local_writable()
         if self.file_path is None:
-            # in_memory fallback: nothing to persist.
-            return self
-        self.file_path.parent.mkdir(parents=True, exist_ok=True)
+            yield
+            return
+        with writer_lock(self.file_path):
+            self.load()
+            yield
+            self._commit()
+
+    def _commit(self) -> None:
+        if self.file_path is None:
+            return
         data = {
             "schema": 1,
             "entries": {
-                kind: {entry_id: asdict(entry) for entry_id, entry in records.items()}
+                kind: {entry_id: _entry_to_wire(entry) for entry_id, entry in records.items()}
                 for kind, records in self.entries.items()
             },
-            "refinements": [asdict(event) for event in self.refinements],
+            "refinements": [_event_to_wire(event) for event in self.refinements],
         }
-        # Atomic replace on the real file: aliases survive, readers never see a torn file.
-        target_path = Path(os.path.realpath(self.file_path))
-        temp_path = target_path.with_name(f"{target_path.name}.{os.getpid()}.{uuid4().hex}.tmp")
-        try:
-            existing_mode = stat.S_IMODE(os.stat(target_path).st_mode)
-        except FileNotFoundError:
-            existing_mode = None
-        mode = existing_mode if existing_mode is not None else 0o600
-        try:
-            # Create no looser than the destination; retain the umask for new files.
-            descriptor = os.open(temp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
-            with os.fdopen(descriptor, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-            if existing_mode is not None:
-                os.chmod(temp_path, existing_mode)
-            os.replace(temp_path, target_path)
-        finally:
-            temp_path.unlink(missing_ok=True)
+        atomic_write(self.file_path, data)
         self._loaded_mtime = self._disk_mtime()
+        self._baseline = self._wire_canonical()
+
+    def save(self) -> "HarnessState":
+        """Commit the current in-memory state under the shared writer lock.
+
+        Direct writes to ``self.entries`` followed by ``save()`` are supported
+        only when nothing else has committed since this instance last loaded or
+        committed. Inside the lock the disk state is re-read: when it differs
+        from the recorded baseline another writer already replaced the file, so
+        this raises :class:`HarnessStateConflictError` instead of overwriting
+        that commit whole. Public mutation methods (upsert/create/update/delete/
+        record_refinement) do not rely on this path — they reload inside the
+        lock first and cannot hit the conflict.
+        """
+        if self.file_path is None:
+            return self
+        self._ensure_local_writable()
+        with writer_lock(self.file_path):
+            disk_canonical = self._disk_canonical()
+            if disk_canonical != self._baseline:
+                raise HarnessStateConflictError(
+                    "harness state changed on disk since the last load/commit; "
+                    "call load() and re-apply the change rather than overwriting it"
+                )
+            self._commit()
         return self
+
+    def _disk_canonical(self) -> str:
+        """Canonical wire-JSON of the current file on disk.
+
+        Re-parses the file through the same field-by-field normalization as
+        ``load()`` so a hand-edited or foreign (camelCase) document compares
+        equal to the baseline this instance recorded; a missing/corrupt file
+        reads as the empty state.
+        """
+        try:
+            with self.file_path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            data = {}
+        snapshot = HarnessState.__new__(HarnessState)
+        snapshot.scope = self.scope
+        snapshot._apply_disk_data(data if isinstance(data, dict) else {})
+        return snapshot._wire_canonical()
 
     def upsert(
         self,
@@ -418,19 +444,18 @@ class HarnessState:
                 metadata=metadata,
                 source=source,
             )
-        self._ensure_local_writable()
-        self._sync_from_disk()
-        return self._upsert(
-            kind,
-            title,
-            content,
-            id=id,
-            path=path,
-            reference=reference,
-            arguments=arguments,
-            metadata=metadata,
-            source=source,
-        )
+        with self._mutating():
+            return self._upsert(
+                kind,
+                title,
+                content,
+                id=id,
+                path=path,
+                reference=reference,
+                arguments=arguments,
+                metadata=metadata,
+                source=source,
+            )
 
     def _upsert(
         self,
@@ -487,7 +512,6 @@ class HarnessState:
                 source=source,
             )
             self.entries[kind][entry_id] = entry
-        self.save()
         return entry
 
     def get(self, kind: HarnessKind, id: str, *, global_: bool = False, **kwargs: Any) -> HarnessEntry | None:
@@ -503,15 +527,13 @@ class HarnessState:
         id, global_ = _strip_scope_prefix(id, global_)
         if target := self._global_target(global_, kwargs):
             return target.delete(kind, id)
-        self._ensure_local_writable()
-        self._sync_from_disk()
-        if kind not in self.entries:
-            raise ValueError(f"unknown harness kind {kind!r}; expected one of {_KINDS}")
-        if id not in self.entries[kind]:
-            return False
-        del self.entries[kind][id]
-        self.save()
-        return True
+        with self._mutating():
+            if kind not in self.entries:
+                raise ValueError(f"unknown harness kind {kind!r}; expected one of {_KINDS}")
+            if id not in self.entries[kind]:
+                return False
+            del self.entries[kind][id]
+            return True
 
     def list(self, kind: HarnessKind | None = None, *, global_: bool = False, **kwargs: Any) -> list[HarnessEntry]:
         if target := self._global_target(global_, kwargs):
@@ -553,24 +575,23 @@ class HarnessState:
                 metadata=metadata,
                 source=source,
             )
-        self._ensure_local_writable()
-        self._sync_from_disk()
-        if kind not in self.entries:
-            raise ValueError(f"unknown harness kind {kind!r}; expected one of {_KINDS}")
-        entry_id = id or _slug(title, kind)
-        if entry_id in self.entries[kind]:
-            raise ValueError(f"{kind} entry {entry_id!r} already exists")
-        return self._upsert(
-            kind,
-            title,
-            content,
-            id=entry_id,
-            path=path,
-            reference=reference,
-            arguments=arguments,
-            metadata=metadata,
-            source=source,
-        )
+        with self._mutating():
+            if kind not in self.entries:
+                raise ValueError(f"unknown harness kind {kind!r}; expected one of {_KINDS}")
+            entry_id = id or _slug(title, kind)
+            if entry_id in self.entries[kind]:
+                raise ValueError(f"{kind} entry {entry_id!r} already exists")
+            return self._upsert(
+                kind,
+                title,
+                content,
+                id=entry_id,
+                path=path,
+                reference=reference,
+                arguments=arguments,
+                metadata=metadata,
+                source=source,
+            )
 
     def update(
         self,
@@ -600,23 +621,22 @@ class HarnessState:
                 metadata=metadata,
                 source=source,
             )
-        self._ensure_local_writable()
-        self._sync_from_disk()
-        if kind not in self.entries:
-            raise ValueError(f"unknown harness kind {kind!r}; expected one of {_KINDS}")
-        if id not in self.entries[kind]:
-            raise ValueError(f"{kind} entry {id!r} does not exist")
-        return self._upsert(
-            kind,
-            title,
-            content,
-            id=id,
-            path=path,
-            reference=reference,
-            arguments=arguments,
-            metadata=metadata,
-            source=source,
-        )
+        with self._mutating():
+            if kind not in self.entries:
+                raise ValueError(f"unknown harness kind {kind!r}; expected one of {_KINDS}")
+            if id not in self.entries[kind]:
+                raise ValueError(f"{kind} entry {id!r} does not exist")
+            return self._upsert(
+                kind,
+                title,
+                content,
+                id=id,
+                path=path,
+                reference=reference,
+                arguments=arguments,
+                metadata=metadata,
+                source=source,
+            )
 
     def create_memory(
         self,
@@ -777,20 +797,18 @@ class HarnessState:
     ) -> RefinementEvent:
         if target := self._global_target(global_, kwargs):
             return target.record_refinement(trigger, changes, evidence=evidence, outcome=outcome, id=id)
-        self._ensure_local_writable()
-        self._sync_from_disk()
-        event_id = id or f"refine_{len(self.refinements) + 1:04d}"
-        normalized_changes = [changes] if isinstance(changes, str) else list(changes)
-        event = RefinementEvent(
-            id=event_id,
-            trigger=trigger,
-            changes=normalized_changes,
-            evidence=evidence,
-            outcome=outcome,
-        )
-        self.refinements.append(event)
-        self.save()
-        return event
+        with self._mutating():
+            event_id = id or f"refine_{len(self.refinements) + 1:04d}"
+            normalized_changes = [changes] if isinstance(changes, str) else list(changes)
+            event = RefinementEvent(
+                id=event_id,
+                trigger=trigger,
+                changes=normalized_changes,
+                evidence=evidence,
+                outcome=outcome,
+            )
+            self.refinements.append(event)
+            return event
 
     def plan_refinement(
         self,

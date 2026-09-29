@@ -57,6 +57,7 @@ async def check():
     for thunk, ename in [
         (lambda: goal.create(1), 'TypeError'),
         (lambda: compact.run(1), 'TypeError'),
+        (lambda: compact.run('focus on the migration'), 'ValueError'),
         (lambda: refine.run(global_='x'), 'TypeError'),
         (lambda: rlm_heartbeat.create(1), 'TypeError'),
         (lambda: rlm_heartbeat.create('x', delivery_mode='bad'), 'ValueError'),
@@ -77,7 +78,7 @@ print(await check())
 `)
     expect(cell.status).toBe('ok')
     expect(cell.stdout).toContain(
-      "['TypeError', 'TypeError', 'TypeError', 'TypeError', 'ValueError', 'TypeError', 'TypeError', 'ValueError', 'ValueError']",
+      "['TypeError', 'TypeError', 'ValueError', 'TypeError', 'TypeError', 'ValueError', 'TypeError', 'TypeError', 'ValueError', 'ValueError']",
     )
     await service.release('skills-validation' as SessionId)
   })

@@ -86,11 +86,11 @@ export interface CompactBindingDeps {
 /** Pending compaction requests and their idle drains, keyed by session id. */
 interface CompactState {
   /**
-   * Latest requested instructions per session; presence alone means a
-   * compaction is scheduled. The current compaction seam accepts no custom
-   * instructions, so the text is retained only for a future engine that does.
+   * Sessions with a pending idle-phase compaction request. Presence alone
+   * means a compaction is scheduled; the compaction seam accepts no custom
+   * instructions, so no per-session text is retained.
    */
-  readonly pending: Map<string, string | undefined>
+  readonly pending: Set<string>
   /** Sessions with an idle-drain loop already running. */
   readonly draining: Set<string>
 }
@@ -127,8 +127,19 @@ function runCompact(
   context: RlmHostRequestContext,
 ): RlmHostReplyData {
   const instructions = request.data['instructions']
-  if (instructions !== undefined && typeof instructions !== 'string') {
-    throw new Error('compact.run instructions must be a string when provided')
+  if (instructions !== undefined) {
+    if (typeof instructions !== 'string') {
+      throw new Error('compact.run instructions must be a string when provided')
+    }
+    // The installed compaction engine's `compactNow` takes no custom summary
+    // focus, so a real instruction is rejected loudly rather than accepted and
+    // silently dropped. An empty/whitespace string carries no focus and is a
+    // no-op boundary.
+    if (instructions.trim() !== '') {
+      throw new Error(
+        'compact.run instructions are not supported: the compaction engine takes no custom summary focus',
+      )
+    }
   }
   const agent = context.agent
   if (agent.status !== 'running') {
@@ -138,7 +149,7 @@ function runCompact(
     })
   }
   const key = String(agent.id)
-  state.pending.set(key, instructions)
+  state.pending.add(key)
   if (!state.draining.has(key)) {
     state.draining.add(key)
     const retire = (): void => {
@@ -208,7 +219,7 @@ async function runCompactStatus(
  * @returns the handler map to register on `ctx.rlmKernel`.
  */
 export function createCompactHostHandlers(deps: CompactBindingDeps): RlmHostRequestHandlers {
-  const state: CompactState = { pending: new Map(), draining: new Set() }
+  const state: CompactState = { pending: new Set(), draining: new Set() }
   return {
     'compact.run': (request, context) => Promise.resolve(runCompact(deps, state, request, context)),
     'compact.status': (_request, context) => runCompactStatus(deps, state, context),

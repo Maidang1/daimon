@@ -127,6 +127,6 @@ These limits define what the provider cannot do; they are current package constr
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-The local/global split and the on-disk shape deliberately mirror the reference host (prime-agent): its session-local store lives in the session artifact directory and its global store in the agent directory, both named `harness_state.json` with a `schema` version, kind-grouped entries, and an ordered refinement history. The provider keeps the dsh spellings (`createdAt`/`updatedAt`, camelCase entry fields) because the seam types are the dsh vocabulary; the files are not interchangeable with the reference host's.
+The local/global split and the on-disk shape deliberately mirror the reference host (prime-agent): its session-local store lives in the session artifact directory and its global store in the agent directory, both named `harness_state.json` with a `schema` version, kind-grouped entries, and an ordered refinement history. The provider keeps the dsh spellings (`createdAt`/`updatedAt`, camelCase entry fields) because the seam types are the dsh vocabulary; the files are not interchangeable with the reference host's. The Python kernel runtime writes this same camelCase shape and reads either spelling (legacy snake_case is accepted on load), so the TS host refiner and the kernel share one store file; both sides take the same `.lock` sibling (`wx`-created, holder PID recorded, dead-PID takeover) before a read-modify-write cycle.
 
 </details>

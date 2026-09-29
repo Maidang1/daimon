@@ -114,7 +114,10 @@ export function applyRefinement(
 ): HarnessState {
   let next = state
   for (const input of proposal.entries) {
-    const previous = state.entries[input.kind][input.id]
+    // Later entries apply in application order on top of earlier ones already
+    // written this pass, so a repeated id composes instead of resetting the
+    // first write back to the original state.
+    const previous = next.entries[input.kind][input.id]
     next = withEntry(next, normalizeEntry(input, previous, now))
   }
   const event: RefinementEvent = {

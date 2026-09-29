@@ -28,12 +28,17 @@ async def run(instructions: str | None = None) -> dict[str, Any]:
     Compaction never runs mid-cell: it runs when the current turn ends and
     the harness resumes you automatically afterwards. Returns
     `{"scheduled": True}`, or `{"scheduled": False, "reason": ...}` when
-    there is nothing to compact. Optional `instructions` focus the summary on
-    what matters for the remaining work.
+    there is nothing to compact.
+
+    The compaction engine takes no custom summary focus, so `instructions`
+    is only accepted as `None` (the default) or an empty string. Passing a
+    non-empty focus raises `ValueError` instead of being silently ignored.
     """
     if instructions is not None and not isinstance(instructions, str):
         raise TypeError(f"instructions must be str or None, got {type(instructions).__name__}")
-    payload: dict[str, Any] = {}
-    if instructions is not None:
-        payload["instructions"] = instructions
-    return await host_request("compact.run", payload)
+    if instructions is not None and instructions.strip():
+        raise ValueError(
+            "compact.run takes no custom instructions: the compaction engine "
+            "has no summary-focus seam",
+        )
+    return await host_request("compact.run")

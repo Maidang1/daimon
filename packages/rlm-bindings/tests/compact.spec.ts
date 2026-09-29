@@ -129,6 +129,34 @@ describe('compact.run', () => {
     )).rejects.toThrow('compact.run instructions must be a string when provided')
   })
 
+  it('rejects a non-empty instructions string the engine cannot honor', async () => {
+    const handlers = createCompactHostHandlers(deps())
+    const running = agent('s3', {}, { status: 'running' })
+    await expect(call(
+      handlers['compact.run']!,
+      request({ type: 'compact.run', instructions: 'focus on the migration' }),
+      contextFor(running.owner),
+    )).rejects.toThrow('compact.run instructions are not supported')
+    const status = await handlers['compact.status']!(request({ type: 'compact.status' }), contextFor(running.owner))
+    expect(okResult(status)).toMatchObject({ scheduled: false })
+  })
+
+  it('treats an empty or whitespace-only instructions string as no focus', async () => {
+    const compaction = new FakeCompaction()
+    const handlers = createCompactHostHandlers(deps({ compaction }))
+    const gate = idleGate()
+    const { owner } = agent('s4', {}, { status: 'running', idle: gate.idle })
+    for (const instructions of ['', '   ']) {
+      const reply = await handlers['compact.run']!(
+        request({ type: 'compact.run', instructions }),
+        contextFor(owner),
+      )
+      expect(okResult(reply)).toMatchObject({ scheduled: true })
+    }
+    gate.release()
+    await vi.waitFor(() => { expect(compaction.calls).toHaveLength(1) })
+  })
+
   it('declines to schedule when the agent has no active turn', async () => {
     const handlers = createCompactHostHandlers(deps())
     const { owner } = agent('s1')
@@ -149,7 +177,7 @@ describe('compact.run', () => {
     const { owner } = agent('s1', { provider: 'p1', model: 'm1' }, { status: 'running', idle: gate.idle })
     const signal = new AbortController().signal
     const reply = await handlers['compact.run']!(
-      request({ type: 'compact.run', instructions: 'focus on the migration' }),
+      request({ type: 'compact.run' }),
       { agent: owner, signal },
     )
     expect(okResult(reply)).toEqual({
@@ -173,7 +201,7 @@ describe('compact.run', () => {
     const context = contextFor(owner)
     const first = await handlers['compact.run']!(request({ type: 'compact.run' }), context)
     const second = await handlers['compact.run']!(
-      request({ type: 'compact.run', instructions: 'newer instructions' }),
+      request({ type: 'compact.run' }),
       context,
     )
     expect(okResult(first)).toMatchObject({ scheduled: true })
