@@ -166,7 +166,7 @@ def fetch_live_us_prepost(tickers):
             raw = json.loads(urllib.request.urlopen(req, timeout=15).read().decode("utf-8", "ignore"))
             r0 = raw["chart"]["result"][0]
             base = r0["meta"].get("regularMarketPrice")
-            closes = [c for c in r0["indicators"]["quote"][0]["close"] if c]
+            closes = [c for c in (r0["indicators"]["quote"][0].get("close") or []) if c]
             if base and closes:
                 pct = (closes[-1] / base - 1) * 100
                 if abs(pct) < 25:
@@ -296,24 +296,22 @@ def morning():
 
 
 # ---------------- 午 14:00：锁定版 + 盘中参考 ----------------
-def afternoon():
-    now = pd.Timestamp.now("Asia/Shanghai")
-    made_at = now.strftime("%Y-%m-%d %H:%M")
-    entries = load_pred_log()
-    track = load_track()
-
-    # 收集全部因子 ticker：A/港走腾讯实时，日/韩走 Yahoo 日线最新价，美股走盘后/盘前最新价
-    cfgs = {}
+def _collect_tickers(cfgs):
+    """汇总各基金篮子的全部因子 ticker，按行情源分组。"""
     all_cn, all_yf_asia, all_yf_us = [], [], []
-    for code in _funds():
-        cfg = json.load(open(os.path.join(_state.fund_dir(code), "config.json"), encoding="utf-8"))
-        cfgs[code] = cfg
+    for cfg in cfgs.values():
         for b in cfg["baskets"].values():
             for t in b["tickers"]:
                 if t.startswith("IFIND:"):
                     all_cn.append(t[6:])
                 elif t.startswith("YF:"):
                     (all_yf_us if b.get("market") == "US" else all_yf_asia).append(t[3:])
+    return all_cn, all_yf_asia, all_yf_us
+
+
+def _fetch_live_all(cfgs):
+    """一次性拉齐全部因子实时行情：A/港走腾讯实时，日/韩走 Yahoo 日线最新价，美股走盘后/盘前最新价。"""
+    all_cn, all_yf_asia, all_yf_us = _collect_tickers(cfgs)
     live = fetch_live(sorted(set(all_cn)))
     print(f"[live] A/港实时行情 {len(live)}/{len(set(all_cn))} 只")
     live_asia = fetch_live_yf_asia(sorted(set(all_yf_asia)))
@@ -322,6 +320,109 @@ def afternoon():
     print(f"[live] 美股盘后/盘前最新价 {len(live_us)}/{len(set(all_yf_us))} 只")
     nq_chg = fetch_nq_futures()
     print(f"[live] 纳指100期货 {nq_chg if nq_chg is not None else '拉取失败'}")
+    return live, live_asia, live_us, nq_chg
+
+
+def intraday_estimate(cfg, res, live, live_asia, live_us, nq_chg, date_str):
+    """盘中参考：最新锁定链式净值 ×（1 + 各因子最新价收益 × 权重）。
+    A/港=腾讯实时；日/韩=Yahoo 日线最新价（已收盘=今日收盘）；美股=盘后/盘前最新价，均不按 0 计。
+    全美股因子池且无实时成分时退化为纳指100期货 × 美股敞口。无数据返回 None。"""
+    pred = res.get("pred")
+    official = res.get("official") or {}
+    base_nav = (pred or {}).get("nav") or official.get("nav")
+    if not base_nav:
+        return None
+    wmap = res.get("weights") or {}
+    live_detail, est_ret, covered = [], 0.0, 0.0
+    for bname, b in cfg["baskets"].items():
+        mkt = b.get("market")
+        rets = []
+        for t in b["tickers"]:
+            if t.startswith("IFIND:"):
+                v = live.get(t[6:])
+            elif t.startswith("YF:"):
+                v = (live_us if mkt == "US" else live_asia).get(t[3:])
+            else:
+                v = None
+            if v is not None:
+                rets.append(v)
+        if not rets:
+            continue
+        br = sum(rets) / len(rets)
+        wb = wmap.get(bname, 0) / 100
+        est_ret += wb * br / 100
+        covered += wb
+        live_detail.append({"name": bname, "live": round(br, 2), "w": round(wb * 100, 1)})
+    if live_detail:
+        return {
+            "date": date_str,
+            "estRet": round(est_ret * 100, 2),
+            "estNav": round(base_nav * (1 + est_ret), 4),
+            "detail": live_detail,
+            "note": (f"最新价估算（覆盖权重 {covered * 100:.0f}%）：A/港=腾讯实时，"
+                     f"日/韩=最新价（已收盘=今日收盘），美股=盘后/盘前最新价"),
+        }
+    if nq_chg is not None:
+        # 因子池全为美股（A/港时段无实时成分）：以纳指100期货作为美股敞口的盘中代理
+        us_w = sum(wmap.get(bn, 0) for bn, b in cfg["baskets"].items() if b.get("market") == "US")
+        if us_w > 0:
+            est_ret = us_w / 100 * nq_chg / 100
+            return {
+                "date": date_str,
+                "estRet": round(est_ret * 100, 2),
+                "estNav": round(base_nav * (1 + est_ret), 4),
+                "detail": [{"name": "纳指期货(美股敞口代理)", "live": round(nq_chg, 2),
+                            "w": round(us_w, 1)}],
+                "note": f"因子池全为美股、今晚才开盘，以纳指100期货实时变动 × 美股敞口（{us_w:.0f}%）估算，仅供方向参考",
+            }
+    return None
+
+
+def refresh_intraday():
+    """用最新实时价重算 `artifact_latest.json` 里每只基金的盘中参考（不动锁定预测、
+    不重跑 RBSA，秒级）。看板"刷新"时调用：美股盘前/盘中刷新即按当时美股价格估算。
+    返回 {"status": "success", "updated": n} 或 {"status": "skip", "reason": ...}。"""
+    artifact = _state.read_json(_state.state_path("artifact_latest.json"), None)
+    if not artifact or not artifact.get("funds"):
+        return {"status": "skip", "reason": "no artifact"}
+    cfgs, results = {}, {}
+    for f in artifact["funds"]:
+        code = f.get("code")
+        cfg_path = os.path.join(_state.fund_dir(code), "config.json")
+        if not code or not os.path.exists(cfg_path):
+            continue
+        cfgs[code] = json.load(open(cfg_path, encoding="utf-8"))
+        results[code] = _state.read_json(os.path.join(_state.fund_dir(code), "result.json"), {})
+    if not cfgs:
+        return {"status": "skip", "reason": "no fund configs"}
+    live, live_asia, live_us, nq_chg = _fetch_live_all(cfgs)
+    now = pd.Timestamp.now("Asia/Shanghai")
+    date_str = now.strftime("%Y-%m-%d")
+    updated = 0
+    for f in artifact["funds"]:
+        code = f.get("code")
+        if code not in cfgs or f.get("error"):
+            continue
+        est = intraday_estimate(cfgs[code], results[code], live, live_asia, live_us, nq_chg, date_str)
+        if est:
+            f["intraday"] = est
+            updated += 1
+    artifact["intradayAt"] = now.strftime("%Y-%m-%d %H:%M") + " 北京时间"
+    _state.write_json(_state.state_path("artifact_latest.json"), artifact)
+    return {"status": "success", "updated": updated}
+
+
+def afternoon():
+    now = pd.Timestamp.now("Asia/Shanghai")
+    made_at = now.strftime("%Y-%m-%d %H:%M")
+    entries = load_pred_log()
+    track = load_track()
+
+    # 收集全部因子 ticker：A/港走腾讯实时，日/韩走 Yahoo 日线最新价，美股走盘后/盘前最新价
+    cfgs = {}
+    for code in _funds():
+        cfgs[code] = json.load(open(os.path.join(_state.fund_dir(code), "config.json"), encoding="utf-8"))
+    live, live_asia, live_us, nq_chg = _fetch_live_all(cfgs)
 
     fund_secs = []
     for code in _funds():
@@ -336,52 +437,10 @@ def afternoon():
         sec = fund_section(code, res, cfg)
         entries = log_predictions(entries, code, res, made_at)
 
-        # 盘中参考：最新锁定链式净值 ×（1 + 各因子最新价收益 × 权重）
-        # A/港=腾讯实时；日/韩=Yahoo 日线最新价（已收盘=今日收盘）；美股=盘后/盘前最新价，均不按 0 计
-        base_nav = res["pred"]["nav"] if res.get("pred") else res["official"]["nav"]
-        wmap = res["weights"]
-        live_detail, est_ret, covered = [], 0.0, 0.0
-        for bname, b in cfg["baskets"].items():
-            mkt = b.get("market")
-            rets = []
-            for t in b["tickers"]:
-                if t.startswith("IFIND:"):
-                    v = live.get(t[6:])
-                elif t.startswith("YF:"):
-                    v = (live_us if mkt == "US" else live_asia).get(t[3:])
-                else:
-                    v = None
-                if v is not None:
-                    rets.append(v)
-            if not rets:
-                continue
-            br = sum(rets) / len(rets)
-            wb = wmap.get(bname, 0) / 100
-            est_ret += wb * br / 100
-            covered += wb
-            live_detail.append({"name": bname, "live": round(br, 2), "w": round(wb * 100, 1)})
-        if live_detail:
-            sec["intraday"] = {
-                "date": now.strftime("%Y-%m-%d"),
-                "estRet": round(est_ret * 100, 2),
-                "estNav": round(base_nav * (1 + est_ret), 4),
-                "detail": live_detail,
-                "note": (f"最新价估算（覆盖权重 {covered * 100:.0f}%）：A/港=腾讯实时，"
-                         f"日/韩=最新价（已收盘=今日收盘），美股=盘后/盘前最新价"),
-            }
-        elif nq_chg is not None:
-            # 因子池全为美股（A/港时段无实时成分）：以纳指100期货作为美股敞口的盘中代理
-            us_w = sum(wmap.get(bn, 0) for bn, b in cfg["baskets"].items() if b.get("market") == "US")
-            if us_w > 0:
-                est_ret = us_w / 100 * nq_chg / 100
-                sec["intraday"] = {
-                    "date": now.strftime("%Y-%m-%d"),
-                    "estRet": round(est_ret * 100, 2),
-                    "estNav": round(base_nav * (1 + est_ret), 4),
-                    "detail": [{"name": "纳指期货(美股敞口代理)", "live": round(nq_chg, 2),
-                                "w": round(us_w, 1)}],
-                    "note": f"因子池全为美股、今晚才开盘，以纳指100期货实时变动 × 美股敞口（{us_w:.0f}%）估算，仅供方向参考",
-                }
+        est = intraday_estimate(cfg, res, live, live_asia, live_us, nq_chg,
+                                now.strftime("%Y-%m-%d"))
+        if est:
+            sec["intraday"] = est
         fund_secs.append(sec)
 
     save_pred_log(entries)

@@ -25,12 +25,14 @@
   - `dashboard()` — 渲染自包含看板 HTML 到 `$FINANCE_HOME/dashboard.html`
 - `goal` / `compact` / `refine` / `rlm_heartbeat` / `agent_message` / `agent_observe` — 会话目标、上下文压缩、自精炼、周期心跳、家族消息与观察。docstring 即文档，`help(finance)` / `help(goal)` 随时查
 
-## 金融看板（无服务）
+## Finance 终端（主界面）
 
-- 主入口：左侧边栏「Finance 看板」面板（中央区内嵌，5 秒轮询感知重渲染）；浏览器 `http://127.0.0.1:3180/finance` 亦可
-- 看板数据由 agent 全权维护：用户说"记一笔 XX 买入 100 份 @ 1.2345" → `finance.add_op(...)` → 面板自动刷新；改完在回复里告诉用户看板已更新
-- 看板页面只读（无表单无 localStorage），所有修改都走会话
-- 首次使用：先 `set_holding` 建仓（或 `run_daily_job()` 生成预测 artifact 后再渲染看板）；要让新基金进入每日预测/热点雷达，用 `register_fund(code, baskets)` 按跟踪指数配 RBSA 因子篮子（ticker 前缀 `YF:`/`IFIND:`）
+- **浏览器打开 `http://127.0.0.1:3180/` 即自建金融终端**：全屏 Finance 面板（总览/持仓/热点/交易流水）+ 右侧聊天抽屉（⌘/Ctrl+B 切换）。用户可能从抽屉里发消息与你对话、新建/切换会话；你发起的审批（approval）和提问（ask-user）会以抽屉顶部的横幅出现等用户应答——**没等到应答就一直在横幅里挂着，不要重复发起**；静态看板在 `/finance`，官方 dsh SPA 后门在 `/index.html`
+- 终端面板由 React 原生渲染 `state/ui_snapshot.json`（`/finance/api/snapshot`），数据口径与看板完全一致；每次看板重渲（`add_op`/`set_holding`/`run_daily_job` 等）都会同步刷新快照，面板约 5 秒自刷
+- **面板内置快捷操作**：「记一笔」（= `finance.add_op`，卖出超持仓会弹确认）、「生成日报」（= `run_daily_job`，异步任务几分钟）、「深度快照」（= `ui_snapshot(include_lookthrough=True)`，含行业穿透）。用户从面板发起的操作与会话内调用等价，操作后如相关，在回复里告诉用户终端已更新
+- 抽屉聊天 v1 不渲染图片附件、diff、present 富面板和子代理 UI——需要用户看富面板（如 `present` 看板）时，提示用户从 `/index.html` 进官方 SPA 查看
+- 快照缺失时的初始化路径：先 `set_holding` 建仓，再 `run_daily_job()` 生成预测 artifact（`register_fund` 按跟踪指数配 RBSA 篮子，ticker 前缀 `YF:`/`IFIND:`）
+- `finance.ui_snapshot()` 可随时手动重建快照
 
 ## 工作方式约定
 

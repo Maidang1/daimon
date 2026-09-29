@@ -1,108 +1,25 @@
 /**
- * Finance board client half: registers the 看板 as a global main panel of the
- * dsh SPA and adds its entry to the sidebar panel list. Selecting the sidebar
- * row swaps the central column from the conversation to the embedded board.
+ * Finance 终端 client half: registers the 终端 as a global main panel of the
+ * dsh SPA, puts its entry at the top of the sidebar panel list, and makes it
+ * the default landing view (`ctx.layout.selectPanel('finance')` swaps the
+ * central column from the conversation to the terminal; selecting the
+ * sidebar「会话」entry returns to the conversation as usual).
  *
- * The panel iframes `/finance` (same origin, served by this package's host
- * half) — the self-contained dashboard file the agent renders with
- * `finance.dashboard()`. A 5s poll of `/finance/api/status` reloads the
- * iframe only when the file actually changed, so scroll state survives.
+ * Data comes from this package's host half (`/finance/api/snapshot`), rendered
+ * natively in React — the old `/finance` iframe board is kept server-side as a
+ * no-JS fallback and deep link, but this panel no longer embeds it.
  *
  * The bundle is wrapped for the dsh client module loader by scripts/wrap-client.mjs;
  * runtime imports are limited to the loader's baseline table (react only).
  */
 
-import { useEffect, useState } from 'react'
+import { TerminalPanel } from './TerminalPanel.js'
 
 /** Identity shared by the sidebar panel entry and the main-slot occupant. */
 const PANEL_ID = 'finance'
 
-/** Client-side services this plugin requires (the slots registry only). */
-export const inject = ['slots']
-
-interface BoardStatus {
-  exists: boolean
-  mtime: string | null
-}
-
-/**
- * The finance dashboard as a central main panel: a slim toolbar over a
- * same-origin iframe of the regenerated dashboard file.
- */
-function FinanceBoardPanel(): React.ReactElement {
-  const [nonce, setNonce] = useState(0)
-  const [missing, setMissing] = useState(false)
-  const [generatedAt, setGeneratedAt] = useState<string | null>(null)
-
-  useEffect(() => {
-    let stopped = false
-    const poll = async (): Promise<void> => {
-      try {
-        const res = await fetch(`/finance/api/status?_=${Date.now()}`)
-        const body = (await res.json()) as BoardStatus
-        if (stopped) return
-        setMissing(!body.exists)
-        setGeneratedAt(prev => {
-          if (prev !== null && body.mtime !== null && body.mtime !== prev) {
-            setNonce(n => n + 1)
-          }
-          return body.mtime ?? prev
-        })
-      } catch {
-        // Keep the previous frame on transient read failures.
-      }
-    }
-    void poll()
-    const timer = setInterval(() => void poll(), 5_000)
-    return () => {
-      stopped = true
-      clearInterval(timer)
-    }
-  }, [])
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--dsh-bg, #fff)' }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px',
-        borderBottom: '1px solid rgba(0,0,0,0.08)', fontSize: 13, flexShrink: 0,
-      }}>
-        <strong>📈 Finance 看板</strong>
-        {generatedAt !== null && (
-          <span style={{ opacity: 0.55 }}>
-            数据更新于 {new Date(generatedAt).toLocaleString('zh-CN', { hour12: false })}
-          </span>
-        )}
-        <span style={{ flex: 1 }} />
-        <button
-          onClick={() => setNonce(n => n + 1)}
-          style={{
-            border: '1px solid rgba(0,0,0,0.15)', borderRadius: 6, background: 'transparent',
-            padding: '3px 10px', fontSize: 12, cursor: 'pointer',
-          }}
-        >
-          刷新
-        </button>
-      </div>
-      {missing ? (
-        <div style={{ margin: '80px auto', maxWidth: 520, padding: '0 24px', lineHeight: 1.8 }}>
-          <h2>看板尚未生成</h2>
-          <p>在会话里让 agent 执行：</p>
-          <pre style={{ background: 'rgba(0,0,0,0.05)', padding: 12, borderRadius: 8 }}>
-            {'import finance\npath = await finance.dashboard()'}
-          </pre>
-          <p>生成后本页会自动加载（5 秒轮询）。</p>
-        </div>
-      ) : (
-        <iframe
-          key={nonce}
-          src="/finance"
-          title="Finance 看板"
-          style={{ flex: 1, border: 'none', width: '100%' }}
-        />
-      )}
-    </div>
-  )
-}
+/** Client-side services this plugin requires. */
+export const inject = ['slots', 'layout']
 
 /** Bar-chart row icon for the sidebar panel list. */
 function FinanceBoardIcon({ size, active }: { size: number; active: boolean }): React.ReactElement {
@@ -116,7 +33,8 @@ function FinanceBoardIcon({ size, active }: { size: number; active: boolean }): 
 }
 
 /**
- * Register the finance board panel and its sidebar entry.
+ * Register the finance terminal panel, its sidebar entry, and the default
+ * landing selection.
  *
  * @param ctx - the client root context (typed loosely; the slot registry's
  *   generic machinery belongs to the dsh client internals).
@@ -125,11 +43,26 @@ export function apply(ctx: any): void {
   ctx.slots.inject('main', () => ctx.slots.register({
     name: 'main',
     key: PANEL_ID,
-  }, FinanceBoardPanel))
+  }, TerminalPanel))
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
     name: 'sidebar.panellist',
     id: PANEL_ID,
-    order: 10,
-    label: () => 'Finance 看板',
+    order: 0,
+    label: () => 'Finance 终端',
   }, FinanceBoardIcon))
+  // Finance-first landing: swap the central column to the terminal on load.
+  // selectPanel throws while the panel id is not registered yet (slot
+  // registration is deferred by the host), so retry briefly instead of
+  // assuming ordering. Once registered the panel stays registered, so a
+  // single success is enough for the app's lifetime.
+  let attempts = 0
+  const selectDefault = (): void => {
+    try {
+      ctx.layout.selectPanel(PANEL_ID)
+    } catch {
+      attempts += 1
+      if (attempts < 25) setTimeout(selectDefault, 200)
+    }
+  }
+  selectDefault()
 }

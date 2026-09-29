@@ -35,6 +35,9 @@ Data semantics:
   auto-reloads within ~5s (mtime poll). Mutating calls (`add_op`,
   `delete_op`, `set_holding`, `remove_holding`) rebuild by default
   (`rebuild=True`) so the board always reflects the latest state.
+- Every board rebuild also refreshes `state/ui_snapshot.json`
+  (`finance.ui_snapshot()` to force it), the data source of the interactive
+  Finance 终端 panel (`/finance/api/snapshot`).
 
 Configuration via environment variables (rarely needed):
 - `FINANCE_HOME` — state root, default `<daimon>/dsh-home/finance`
@@ -77,6 +80,7 @@ def _mod(name: str) -> Any:
     except Exception as exc:
         raise FinanceError(f"finance submodule {name!r} raised at import time: {exc}") from exc
     _modules[name] = module
+    _restore_public()
     return module
 
 
@@ -278,7 +282,10 @@ async def add_op(
                 result["dashboard_error"] = str(exc)
         return result
 
-    return await asyncio.to_thread(call)
+    result = await asyncio.to_thread(call)
+    if rebuild and "warning" not in result:
+        _refresh_snapshot()
+    return result
 
 
 async def delete_op(index: int, rebuild: bool = True) -> dict[str, Any]:
@@ -295,7 +302,10 @@ async def delete_op(index: int, rebuild: bool = True) -> dict[str, Any]:
                 result["dashboard_error"] = str(exc)
         return result
 
-    return await asyncio.to_thread(call)
+    result = await asyncio.to_thread(call)
+    if rebuild:
+        _refresh_snapshot()
+    return result
 
 
 async def holdings() -> dict[str, Any]:
@@ -332,7 +342,10 @@ async def set_holding(
                 result["dashboard_error"] = str(exc)
         return result
 
-    return await asyncio.to_thread(call)
+    result = await asyncio.to_thread(call)
+    if rebuild:
+        _refresh_snapshot()
+    return result
 
 
 async def remove_holding(code: str, rebuild: bool = True) -> dict[str, Any]:
@@ -348,7 +361,10 @@ async def remove_holding(code: str, rebuild: bool = True) -> dict[str, Any]:
                 result["dashboard_error"] = str(exc)
         return result
 
-    return await asyncio.to_thread(call)
+    result = await asyncio.to_thread(call)
+    if rebuild:
+        _refresh_snapshot()
+    return result
 
 
 # ---------------- 分析与雷达 ----------------
@@ -583,6 +599,33 @@ async def analyze(mode: str = "dca", query: str = "") -> dict[str, Any]:
 # ---------------- 每日流水线与看板 ----------------
 
 
+def _refresh_snapshot(include_lookthrough: bool = False) -> None:
+    """Rebuild `state/ui_snapshot.json` for the dsh-finance-board UI. Snapshot
+    failures never break the calling operation — the UI just keeps its last
+    frame."""
+    try:
+        _mod("snapshot").build(include_lookthrough=include_lookthrough)
+    except Exception:
+        pass
+    finally:
+        # snapshot.build() lazily imports the dashboard/jobs/portfolio
+        # submodules, which shadow the same-named public coroutines on this
+        # package — undo that or the next `finance.dashboard()` etc. in this
+        # process fails with "'module' object is not callable".
+        _restore_public()
+
+
+async def ui_snapshot(include_lookthrough: bool = False) -> dict[str, Any]:
+    """Manually rebuild the UI snapshot (`state/ui_snapshot.json`) that the
+    Finance 终端 panel renders. `include_lookthrough=True` also recomputes the
+    sector look-through (slow on a cold industry cache)."""
+
+    def call() -> dict[str, Any]:
+        return _mod("snapshot").build(include_lookthrough=include_lookthrough)
+
+    return await asyncio.to_thread(call)
+
+
 async def run_daily_job(mode: str = "afternoon") -> dict[str, Any]:
     """Run the daily prediction pipeline: fetch market data → RBSA NAV
     predictions → lock predictions into pred_log → refresh artifact/track.
@@ -594,19 +637,43 @@ async def run_daily_job(mode: str = "afternoon") -> dict[str, Any]:
 
     def call() -> dict[str, Any]:
         jobs = _mod("jobs")
-        if mode == "morning":
-            jobs.morning()
-        else:
-            jobs.afternoon()
-        artifact = _state.read_json(_state.state_path("artifact_latest.json"), {})
-        return {
+        # morning()/afternoon() only RETURN the artifact — jobs.main() is what
+        # writes it. Persist here too, otherwise the artifact never lands and
+        # the board/snapshot stay empty forever.
+        artifact = jobs.morning() if mode == "morning" else jobs.afternoon()
+        for name in (f"artifact_{mode}.json", "artifact_latest.json"):
+            _state.write_json(_state.state_path(name), artifact)
+        result = {
             "status": "success",
             "mode": mode,
             "funds": len(artifact.get("funds", [])),
             "updated_at": artifact.get("updatedAt"),
         }
+        if result["funds"] == 0:
+            result["warning"] = (
+                "没有已注册的基金，流水线空跑。持仓不会自动进入预测——"
+                "先用 register_fund(code, baskets) 为基金配置 RBSA 因子篮子。"
+            )
+        return result
 
-    return await asyncio.to_thread(call)
+    result = await asyncio.to_thread(call)
+    _refresh_snapshot(include_lookthrough=True)
+    return result
+
+
+async def live_estimate() -> dict[str, Any]:
+    """Refetch live quotes and recompute every fund's intraday estimate in
+    `artifact_latest.json` (seconds; no RBSA rerun, locked predictions
+    untouched). Use before rendering the board outside the daily pipeline so
+    pre-market / intraday US prices are reflected (`{"status": "success",
+    "updated": n}`, or `"skip"` with a reason when no artifact exists yet)."""
+
+    def call() -> dict[str, Any]:
+        return _mod("jobs").refresh_intraday()
+
+    result = await asyncio.to_thread(call)
+    _refresh_snapshot()
+    return result
 
 
 async def dashboard() -> dict[str, Any]:
@@ -620,7 +687,9 @@ async def dashboard() -> dict[str, Any]:
     def call() -> dict[str, Any]:
         return _mod("dashboard").render()
 
-    return await asyncio.to_thread(call)
+    result = await asyncio.to_thread(call)
+    _refresh_snapshot()
+    return result
 
 
 __all__ = [
@@ -641,6 +710,7 @@ __all__ = [
     "hotspots",
     "lct_positions",
     "lct_transactions",
+    "live_estimate",
     "ops",
     "portfolio",
     "remove_fund",
@@ -651,4 +721,23 @@ __all__ = [
     "set_holding",
     "status",
     "transactions",
+    "ui_snapshot",
 ]
+
+
+_PUBLIC_BINDINGS: dict[str, Any] = {
+    name: globals()[name] for name in __all__ if callable(globals().get(name))
+}
+
+
+def _restore_public() -> None:
+    """Re-bind the public API names after a submodule import.
+
+    Importing `finance.portfolio` / `finance.dashboard` / ... sets a same-named
+    attribute on this package, shadowing the public coroutine of that name, so
+    `finance.portfolio()` would break with "'module' object is not callable"
+    after any earlier API call. `_mod()` calls this to undo that shadowing."""
+    g = globals()
+    for name, func in _PUBLIC_BINDINGS.items():
+        if g.get(name) is not func:
+            g[name] = func

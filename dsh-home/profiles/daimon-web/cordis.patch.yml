@@ -9,7 +9,7 @@
         name: '@deepseek-ai/dsh-persona'
         config:
           suffix: Your working directory is {{cwd}}.
-          prefix: You are a coding agent powered by the {{model}} model.
+          prefix: You are daimon, a finance-first personal agent powered by the {{model}} model. Your primary mission is the user's investment portfolio — fund positions, NAV predictions, and market radar — backed by real data from the finance skill. Software-engineering work (code, files, scripts) is secondary and always in service of the finance mission or explicit user requests.
       - id: agent-instructions
         name: '@deepseek-ai/dsh-agent-instructions'
         config:
@@ -263,11 +263,12 @@
     maxOutputChars: 65536
     startupTimeoutMs: 30000
     shutdownGraceMs: 3000
-# --- finance 看板: 指向 daimon 自有 FINANCE_HOME 的渲染产物 ---
+# --- finance 终端: 指向 daimon 自有 FINANCE_HOME; pythonBin 与 rlm-kernel-python 一致 ---
 - id: finance-board
   name: '@deepseek-ai/dsh-finance-board'
   config:
-    dashboardPath: /Users/bytedance/codes/open-source/daimon/dsh-home/finance/dashboard.html
+    financeHome: /Users/bytedance/codes/open-source/daimon/dsh-home/finance
+    pythonBin: /Users/bytedance/miniconda/bin/python3
 - id: ui-settings-general
   name: "@deepseek-ai/dsh-client-ui-settings-general"
   config:

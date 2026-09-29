@@ -104,7 +104,7 @@ pnpm start                   # 等价于 DSH_HOME=$PWD/dsh-home npx -y @deepseek
 
 dsh CLI 固定为 `0.1.7-rc.2`（与 vendored 包依赖的 `@deepseek-ai/dsh-*` 钉版一致，不用浮动的 `@next`）。其中 `DSH_HOME` 指向的是仓库内自带的 `dsh-home` 目录（profile、会话、凭证等运行时数据都在里面）。
 
-运行后输出一个带 token 的 URL，浏览器打开即可（监听 `127.0.0.1:3180`）。
+运行后输出一个带 token 的 URL，浏览器打开即可（监听 `127.0.0.1:3180`）。打开 `/` 是**自建金融终端**（finance-board 接管的根路由，见下文「Web UI 架构」）；官方 dsh SPA 保留在 `/index.html` 作后门（同一道 token/cookie 门）。
 
 首次使用在 Web 设置页填 DeepSeek API key，凭证由 `credentials` 插件托管。
 
@@ -123,7 +123,7 @@ daimon/
 │   ├── tool-python/             # 暴露给模型的 python 工具
 │   ├── rlm-harness/             # continual harness 抽象 seam（条目 + 精炼事件）
 │   ├── rlm-harness-local/       # harness 的 JSON 文件 provider（已接线）
-│   ├── finance-board/           # finance 看板：/finance 路由 + SPA 侧边栏主面板（client bundle）
+│   ├── finance-board/           # Finance 终端：/ 自建金融终端 SPA + /finance/api/* JSON + 异步任务 + 官方 SPA 内的旧版主面板（client bundle）
 │   └── rlm-bindings/            # 28 条 host_request 宿主绑定（已接线，自带 patch 自注入）
 └── dsh-home/profiles/daimon-web/
     ├── package.json             # bundle 列表 + link:../../../packages/* 相对链接
@@ -170,17 +170,34 @@ await finance.set_holding("008401", shares=1000, cost_amount=2000, name="xx基�
 await finance.add_op("008401", "buy", 100, 1.2345)   # 记一笔买卖，自动重渲看板
 ctx = await finance.agent_context() # 组合+穿透+预测+热点完整上下文（不调 LLM，agent 自己推理）
 await finance.run_daily_job()       # 每日流水线：行情→RBSA 预测→artifact
-path = await finance.dashboard()    # 渲染自包含看板 HTML
+await finance.ui_snapshot()         # 重建 UI 快照（终端面板数据源；看板重渲时自动刷新）
+path = await finance.dashboard()    # 渲染自包含看板 HTML（无 JS 降级/深链入口）
 ```
 
 覆盖：理财通持仓/流水（需 `$FINANCE_HOME/.env` 的 `LCT_COOKIE`，失效抛 `FinanceAuthError`）、组合账本与看板操作记录双轨（`add_transaction` 记帐不上看板，`add_op` 上看板不动账本）、NAV 预测与 RBSA 结果、热点雷达、持仓穿透行业分析、预测命中率、基金库管理、可选 LLM 投研报告（`analyze()`，消耗 `MOONSHOT_API_KEY`/`KIMI_API_KEY` 配额，优先自己基于 `agent_context()` 推理）。金额单位为元；账本日期 `YYYYMMDD`，看板 ops 日期 `YYYY-MM-DD`。
 
-**看板两个入口**（都不依赖任何服务）：
+**Finance 终端三个入口**（都不依赖任何服务）：
 
-1. **dsh SPA 侧边栏面板**——`packages/finance-board` 的 client bundle 在 `sidebar.panellist` 注册了「Finance 看板」入口，点击即把中央区从对话切到内嵌看板（同源 iframe `/finance` + 5 秒轮询 `/finance/api/status`，重新渲染后自动刷新且不丢滚动位置）。浏览器直接访问 `http://127.0.0.1:3180/finance` 也可以。
-2. 会话内 `present` 看板文件 → 右侧栏 documentpreview 面板（sandboxed iframe，自动重载）。
+1. **自建金融终端** `http://127.0.0.1:3180/`——finance-board host 半用 exact 路由接管 `/`（优先于官方 SPA 的 fallback 席位），serve `src/terminal/` 打出的自建 SPA：全屏 Finance 终端（总览/持仓/热点/交易流水四个 tab + 快捷操作）+ 右侧聊天抽屉（会话列表/消息流/输入，⌘/Ctrl+B 切换）。终端面板数据来自 `/finance/api/snapshot`（finance skill 每次看板重渲时同步写出的 `state/ui_snapshot.json`），5 秒轮询 mtime 变更才重载；快捷操作：「记一笔」（= `finance.add_op`，卖出超持仓弹确认）、「生成日报」（= `run_daily_job`，异步 job）、「深度快照」（= 含行业穿透的 `ui_snapshot`）；异步任务经 `POST /finance/api/jobs` 起一次性 Python runner（同 kernel 解释器），状态写在 `state/ui_job_*.json`。聊天抽屉直接讲 dsh 浏览器传输层协议（见「Web UI 架构」）：文本流式、工具调用可折叠卡片、审批/提问横幅应答。
+2. **静态看板** `http://127.0.0.1:3180/finance`——自包含 HTML，无 JS 降级/深链入口，渲染产物与会话内 `present` 看板共用。
+3. 会话内 `present` 看板文件 → 右侧栏 documentpreview 面板（sandboxed iframe，自动重载）。
 
-> 该路由与 webserver 其余部分一样无鉴权，靠 127.0.0.1 回环绑定保护；看板含个人资产数据，不要把 webserver 绑到非回环地址。
+> `/finance/*` 路由与 webserver 其余部分一样无鉴权，靠 127.0.0.1 回环绑定保护；`/` 走与官方 SPA 相同的 authorizeIndex token/cookie 门。看板含个人资产数据，不要把 webserver 绑到非回环地址。
+
+---
+
+## Web UI 架构
+
+浏览器体验以自建金融终端为主，dsh 只做运行时（会话、模型路由、python 工具、REPL、finance skill 全部照旧）：
+
+- **`/`（exact 路由）→ 自建终端**：`packages/finance-board` host 半 inject `webServer` + `connection`，handler 先 `ctx.connection.authorizeIndex(req, res)`（token 交换发 cookie + 303、无凭证 401 都由它响应），通过后 serve `lib/terminal/index.html`（内存缓存，`no-cache`）；`GET /terminal/app.js` 为 esbuild 产物（react 打进 bundle，无 client-loader 约束）。
+- **`/index.html`（fallback 席位）→ 官方 SPA 后门**：接管 `/` 后官方界面原样可用（同一道 authorizeIndex 门）；`src/client/` 的旧版 dsh 面板 bundle 仍在那里提供 Finance 主面板。
+- **传输层（绑定 dsh 0.1.7-rc.2，升级 dsh 需回归）**：
+  - unary：`POST /api/<ns>/<m>`，body `{type:"client-request", rpcId, method, payload:{args:{request:{...}}}}`，响应 `{type:"server-response", rpcId, result:{ok:true,value}|{ok:false,error}}`；
+  - stream：WebSocket `/api/remote.mux` 单连接多路复用，客户端 `{type:"open",streamId,endpoint,payload}`，服务端 `{type:"item"|"end"|"error",streamId,...}`，关流发 `{type:"cancel",streamId}`；断线指数退避重连（500ms→10s）并重开活跃流；
+  - `$events` 流（payload `{args:{}}`）：首帧 `ready` 给 `clientId`；waterfall 帧（`approval/request`、`user-questions/request`）必须经 `POST /api/$events/result` 回执 `{clientId,eventId,outcome}`，否则 agent 卡死——未知 waterfall 类型默认回 `{kind:"next"}` 放行；
+  - `session/follow` 流：首帧 `snapshot`（records + hasMore），随后持久事件 `{type:"event",event:{type,seq,time,data}}` 与 assistant-stream 增量帧。
+- **聊天抽屉 v1 能力边界**：文本流式、工具调用卡片（输出截断前 12 行）、审批/提问横幅。**不渲染**：图片附件预览、diff、present 富面板、子代理 UI——需要这些时从 `/index.html` 进官方 SPA。
 
 ---
 

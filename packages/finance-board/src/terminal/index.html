@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>daimon · 金融终端</title>
+  <!-- 防闪烁：首帧前就把暗色底铺上，等 app.js 接管 -->
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #0d1117; color: #e6edf3;
+      font-family: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; }
+    #root { height: 100%; }
+    #boot { display: flex; align-items: center; justify-content: center; height: 100%;
+      color: rgba(127, 140, 152, 0.9); font-size: 13px; letter-spacing: 0.05em; }
+  </style>
+</head>
+<body>
+  <div id="root"><div id="boot">daimon 金融终端加载中…</div></div>
+  <script src="/terminal/app.js" defer></script>
+</body>
+</html>
