@@ -32,8 +32,10 @@ REPL 启动时自动注入一套运行时（`py/rlm/`），模型零 import 即�
 - `todo` — 任务清单（允许并行 in-progress）
 - `ask-user` — 向人提问
 - `present` — 展示内容
-- persona / agent-instructions — 人格与指令注入
+- persona / agent-instructions — 人格与指令注入（`dsh-home/AGENTS.md` 是全局运行手册：REPL 预注入名、7 个 Python skills、finance 用法与看板入口都在里面，是模型发现自身能力的主通道）
 - compaction — token 压力自动压缩 + `/compact` 手动压缩
+
+> 新会话默认 preset 为 `standard`（profile patch 里 `agent-preset-registry.selectedDefault` 控制）；`minimal` preset 没有 agent-instructions 与工具组，只用于纯聊天。
 
 ### 子代理家族
 
@@ -117,17 +119,18 @@ daimon/
 ├── package.json + pnpm-workspace.yaml   # 根 workspace，为 vendored 包安装已发布依赖
 ├── packages/                            # 全部 vendor 自 deepseek-harness（未发布 npm）
 │   ├── rlm-kernel/              # RLM kernel 能力缝：ctx.rlmKernel 服务定义与线协议
-│   ├── rlm-kernel-python/       # CPython provider + REPL 运行时 + py/skills（6 个）
+│   ├── rlm-kernel-python/       # CPython provider + REPL 运行时 + py/skills（7 个）
 │   ├── tool-python/             # 暴露给模型的 python 工具
 │   ├── rlm-harness/             # continual harness 抽象 seam（条目 + 精炼事件）
 │   ├── rlm-harness-local/       # harness 的 JSON 文件 provider（已接线）
+│   ├── finance-board/           # finance 看板：/finance 路由 + SPA 侧边栏主面板（client bundle）
 │   └── rlm-bindings/            # 28 条 host_request 宿主绑定（已接线，自带 patch 自注入）
 └── dsh-home/profiles/daimon-web/
     ├── package.json             # bundle 列表 + link:../../../packages/* 相对链接
     └── cordis.patch.yml         # 全部定制：功能裁剪 + preset 同步裁剪 + 端口覆盖
 ```
 
-profile 的 bundle 为 `@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app` + 4 个 link 进来的 vendored 包。
+profile 的 bundle 为 `@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app` + 5 个 link 进来的 vendored 包。kernel 的 `pythonBin` 在 `cordis.patch.yml` 里覆盖为 `~/miniconda/bin/python3`（finance 包的 RBSA/热点等分析引擎需要 pandas/scipy 等依赖；同时模型在任意 cell 里也可用这套科学计算环境）。
 
 ---
 
@@ -152,7 +155,32 @@ profile 的 bundle 为 `@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app` + 4 
 | 心跳 | `rlm_heartbeat.create` / `update` / `list` / `delete` | 周期自检 |
 | 精炼 | `refine.run` / `refine.status` | 回合边界 harness 精炼 |
 
-模型侧不直接调 wire——6 个 Python skill（`goal` / `compact` / `refine` / `rlm_heartbeat` / `agent_message` / `agent_observe`）是它们的薄类型化封装，`import` 即用，零第三方依赖。
+模型侧不直接调 wire——6 个 Python skill（`goal` / `compact` / `refine` / `rlm_heartbeat` / `agent_message` / `agent_observe`）是它们的薄类型化封装，`import` 即用，零第三方依赖。第 7 个 skill `finance` 不走 wire，见下文。
+
+---
+
+## 金融分析（finance 包 + 看板）
+
+`py/skills/finance/` 是 daimon 原生的基金分析包（fork 自 touzi 后端，已彻底脱钩）：组合记账、天天基金行情、理财通导入、RBSA 风格回归、净值预测流水线（`run_daily_job`）、热点雷达、持仓穿透、看板渲染器，全部在内。**没有任何服务，也不依赖 touzi 仓库**。全部可变状态在 `dsh-home/finance/`（FINANCE_HOME，已 gitignore）：账本、持仓基线、ops、预测 artifact、行情缓存、`.env`（`LCT_COOKIE` / `MOONSHOT_API_KEY`）都归这里：
+
+```python
+import finance
+await finance.status()              # FINANCE_HOME/解释器/凭证自检
+await finance.set_holding("008401", shares=1000, cost_amount=2000, name="xx基金")  # 建仓
+await finance.add_op("008401", "buy", 100, 1.2345)   # 记一笔买卖，自动重渲看板
+ctx = await finance.agent_context() # 组合+穿透+预测+热点完整上下文（不调 LLM，agent 自己推理）
+await finance.run_daily_job()       # 每日流水线：行情→RBSA 预测→artifact
+path = await finance.dashboard()    # 渲染自包含看板 HTML
+```
+
+覆盖：理财通持仓/流水（需 `$FINANCE_HOME/.env` 的 `LCT_COOKIE`，失效抛 `FinanceAuthError`）、组合账本与看板操作记录双轨（`add_transaction` 记帐不上看板，`add_op` 上看板不动账本）、NAV 预测与 RBSA 结果、热点雷达、持仓穿透行业分析、预测命中率、基金库管理、可选 LLM 投研报告（`analyze()`，消耗 `MOONSHOT_API_KEY`/`KIMI_API_KEY` 配额，优先自己基于 `agent_context()` 推理）。金额单位为元；账本日期 `YYYYMMDD`，看板 ops 日期 `YYYY-MM-DD`。
+
+**看板两个入口**（都不依赖任何服务）：
+
+1. **dsh SPA 侧边栏面板**——`packages/finance-board` 的 client bundle 在 `sidebar.panellist` 注册了「Finance 看板」入口，点击即把中央区从对话切到内嵌看板（同源 iframe `/finance` + 5 秒轮询 `/finance/api/status`，重新渲染后自动刷新且不丢滚动位置）。浏览器直接访问 `http://127.0.0.1:3180/finance` 也可以。
+2. 会话内 `present` 看板文件 → 右侧栏 documentpreview 面板（sandboxed iframe，自动重载）。
+
+> 该路由与 webserver 其余部分一样无鉴权，靠 127.0.0.1 回环绑定保护；看板含个人资产数据，不要把 webserver 绑到非回环地址。
 
 ---
 

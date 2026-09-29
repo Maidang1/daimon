@@ -51,7 +51,13 @@ export function apply(ctx: Context, config: Config = {}): void {
     description: 'Run one code cell in this session\'s persistent Python environment. '
       + 'Top-level await works, and every name a cell binds stays available to later cells. '
       + 'Use bash("command") inside a cell for a subprocess. Prefer this tool over scratch files '
-      + 'for computation, data work, and anything whose intermediate state a later step needs.',
+      + 'for computation, data work, and anything whose intermediate state a later step needs. '
+      + 'The kernel pre-injects bash(), mcp (MCP client), harness (long-term memory entries), '
+      + 'rlm (host bridge: spawn/collect subagents), and emit(). Importable skills on PYTHONPATH: '
+      + 'finance (personal fund analysis over the local touzi backend; start with '
+      + 'await finance.ensure_backend()), goal, compact, refine, rlm_heartbeat, agent_message, '
+      + 'agent_observe — their docstrings are the documentation. The workspace AGENTS.md '
+      + 'describes the full runtime surface.',
     parameters: {
       code: {
         type: 'string',

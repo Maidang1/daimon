@@ -196,8 +196,7 @@
 # --- 文档预览 ---
 - id: office-to-pdf
   disabled: true
-- id: ui-sidebar-documentpreview
-  disabled: true
+# ui-sidebar-documentpreview 已恢复: finance 看板经 present 在右侧栏预览 (sandboxed iframe, 自动重载)
 
 # --- open-in-app ---
 - id: open-in-app
@@ -256,6 +255,19 @@
   config:
     host: 127.0.0.1
     port: 3180
+# --- kernel 解释器: 切到 miniconda (finance 包原生实现 RBSA/热点等分析, 需要 pandas/scipy/requests/dotenv) ---
+- id: rlm-kernel-python
+  config:
+    pythonBin: /Users/bytedance/miniconda/bin/python3
+    pythonPath: []
+    maxOutputChars: 65536
+    startupTimeoutMs: 30000
+    shutdownGraceMs: 3000
+# --- finance 看板: 指向 daimon 自有 FINANCE_HOME 的渲染产物 ---
+- id: finance-board
+  name: '@deepseek-ai/dsh-finance-board'
+  config:
+    dashboardPath: /Users/bytedance/codes/open-source/daimon/dsh-home/finance/dashboard.html
 - id: ui-settings-general
   name: "@deepseek-ai/dsh-client-ui-settings-general"
   config:
@@ -264,8 +276,16 @@
   name: "@deepseek-ai/dsh-agent-preset-registry"
   config:
     default: standard
-    selectedDefault: minimal
+    selectedDefault: standard
+- id: locale
+  name: "@deepseek-ai/dsh-client-locale"
+  config:
+    preference: zh
+- id: ui-theme
+  name: "@deepseek-ai/dsh-client-ui-theme"
+  config:
+    preference: dark
 
-# --- RLM Python skills: 6 个移植自 prime-agent 的 skill 包 (goal/compact/refine/rlm_heartbeat/agent_message/agent_observe),
-# 随 vendored rlm-kernel-python 的 py/skills/ 发布; kernel 会自行把 py/skills 加进 PYTHONPATH, 无需此处配置;
-# 宿主 python 零第三方依赖 ---
+# --- RLM Python skills: 6 个移植自 prime-agent 的 skill 包 (goal/compact/refine/rlm_heartbeat/agent_message/agent_observe)
+# + finance (touzi 基金后端直连客户端, 需 kernel 跑 miniconda python),
+# 随 vendored rlm-kernel-python 的 py/skills/ 发布; kernel 会自行把 py/skills 加进 PYTHONPATH, 无需此处配置 ---

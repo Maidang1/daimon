@@ -33,17 +33,98 @@ async function kernel(): Promise<PythonRlmKernel> {
 }
 
 describe('bundled RLM skill packages', () => {
-  it('imports all six skill packages from py/skills over pythonPath', async () => {
+  it('imports all seven skill packages from py/skills over pythonPath', async () => {
     const service = await kernel()
     const handle = await service.acquire(agent('skills-import'))
     const cell = await handle.execute(
-      'import goal, compact, refine, rlm_heartbeat, agent_message, agent_observe\n'
+      'import goal, compact, refine, rlm_heartbeat, agent_message, agent_observe, finance\n'
       + 'print(goal.__name__, compact.__name__, refine.__name__, '
-      + 'rlm_heartbeat.__name__, agent_message.__name__, agent_observe.__name__)',
+      + 'rlm_heartbeat.__name__, agent_message.__name__, agent_observe.__name__, finance.__name__)',
     )
     expect(cell.status).toBe('ok')
-    expect(cell.stdout).toContain('goal compact refine rlm_heartbeat agent_message agent_observe')
+    expect(cell.stdout).toContain('goal compact refine rlm_heartbeat agent_message agent_observe finance')
     await service.release('skills-import' as SessionId)
+  })
+
+  it('finance owns its state under FINANCE_HOME: ops/holdings closed loop + board render', async () => {
+    const service = await kernel()
+    const handle = await service.acquire(agent('skills-finance-board'))
+    const cell = await handle.execute(`
+import os, tempfile
+os.environ['FINANCE_HOME'] = tempfile.mkdtemp()
+import finance
+
+s = await finance.status()
+assert s['finance_home'] == os.environ['FINANCE_HOME']
+
+# 建仓（artifact 未生成时宽容渲染：持仓/操作立即可见，基金网格为空）
+h = await finance.set_holding('008401', 1000, 2000.0, name='测试基金')
+assert h['status'] == 'success' and 'dashboard' in h
+
+# 注册基金进预测流水线（RBSA 篮子）
+rf = await finance.register_fund('008401', {'标普500等权': {'market': 'US', 'tickers': ['YF:RSP']}})
+assert rf['status'] == 'success'
+try:
+    await finance.register_fund('008401', {'x': {'market': 'US', 'tickers': ['YF:QQQ']}})
+    raise SystemExit('duplicate register_fund not rejected')
+except ValueError:
+    pass
+
+# 看板操作记录：买入 + 卖出超额 warning（不落盘）
+r = await finance.add_op('008401', 'buy', 100, 1.2345, date='2026-09-29', note='t')
+assert r['status'] == 'success' and 'dashboard' in r
+w = await finance.add_op('008401', 'sell', 99999, 1.5)
+assert 'warning' in w
+assert len((await finance.ops())['ops']) == 1
+
+# 校验拦截
+for bad in [('99999x', 'buy', 1, 1.0), ('008401', 'hold', 1, 1.0), ('008401', 'buy', -1, 1.0)]:
+    try:
+        await finance.add_op(*bad)
+        raise SystemExit(f'no error for {bad}')
+    except finance.FinanceError:
+        pass
+
+# 写入假 artifact 后渲染看板：ops 烘焙进 HTML、无 localStorage、</ 转义
+from finance import _state
+_state.write_json(_state.state_path('artifact_latest.json'), {
+    'jobKind': 'test', 'jobLabel': '测试', 'updatedAt': '2026-09-29 14:00',
+    'summary': 's</script>', 'notes': '', 'track': [], 'corrections': [],
+    'funds': [{'code': '008401', 'name': '测试基金', 'officialNav': 1.2,
+               'officialDate': '2026-09-28', 'officialRet': 0.5}],
+})
+r2 = await finance.add_op('008401', 'sell', 50, 1.3, note='卖一半')
+assert 'dashboard' in r2
+html = open(r2['dashboard'], encoding='utf-8').read()
+assert 'localStorage' not in html and '卖一半' in html and '<\\\\/script>' in html
+
+# 持仓重算（镜像看板 computePos）：1000 基线 + 100 买 - 50 卖
+pos = (await finance.holdings())['positions']['008401']
+assert abs(pos['shares'] - 1050) < 1e-6, pos
+d = await finance.delete_op(1)
+assert d['ops_count'] == 1
+print('finance-closed-loop OK', len(html))
+`)
+    expect(cell.status).toBe('ok')
+    expect(cell.stdout).toContain('finance-closed-loop OK')
+    await service.release('skills-finance-board' as SessionId)
+  })
+
+  it('finance analysis engine submodules import as a package', async () => {
+    const service = await kernel()
+    const handle = await service.acquire(agent('skills-finance-imports'))
+    const cell = await handle.execute(`
+import os, tempfile
+os.environ['FINANCE_HOME'] = tempfile.mkdtemp()
+import finance
+# 纯 stdlib 子模块（licaitong/rbsa/hotspot/jobs 需 miniconda 的 requests/pandas，由真实 kernel 覆盖）
+for m in ('portfolio', 'industry', 'agent', 'dashboard'):
+    finance._mod(m)
+print('submodules OK')
+`)
+    expect(cell.status).toBe('ok')
+    expect(cell.stdout).toContain('submodules OK')
+    await service.release('skills-finance-imports' as SessionId)
   })
 
   it('runs each skill\'s client-side validation without any host handler', async () => {

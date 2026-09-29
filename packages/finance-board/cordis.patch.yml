@@ -1,0 +1,9 @@
+# Finance dashboard route on the dsh web server. The row injects the webServer
+# service, so a composition without the HTTP carrier fails loud at startup.
+
+- insert:
+    - id: finance-board
+      name: '@deepseek-ai/dsh-finance-board'
+      inject: [webServer]
+      config:
+        dashboardPath: /Users/bytedance/codes/myself/touzi/dashboard.html
