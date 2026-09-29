@@ -5,6 +5,7 @@ dsh-home/sessions/
 dsh-home/storages/
 dsh-home/logs/
 dsh-home/finance/
+dsh-home/rlm/
 dsh-home/profiles/*/.plugin-manager/
 dsh-home/profiles/*/pnpm-lock.yaml
 
