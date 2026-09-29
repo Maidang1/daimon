@@ -48,6 +48,8 @@
   - 新增启动 bootstrap cell：将 `rlm`、`bash()`、`mcp` 绑定进 kernel 用户命名空间，模型代码无需显式 import
 - 其他本地修改：
   - rlm-kernel-python: kernel 自动将 `py/skills` 注入 PYTHONPATH（替代原 profile 里的 pythonPath 绝对路径配置）
+  - rlm-kernel-python: spawn 时导出 `RLM_HARNESS_STATE_DIR` / `RLM_GLOBAL_HARNESS_STATE_DIR`（复用 rlm-harness-local 的路径 helper），使 Python 运行时的 `rlm.harness` 与 host 侧 `ctx.rlmHarness` 共享同一份 JSON store
+  - rlm-kernel-python: 修复 kernel bridge 并发与生命周期缺陷——acquire 等待 bootstrap 完成、输出事件按 cell id 归属、abort 监听随 cell settle 移除且 interrupt 携带目标 id、启动 stderr 诊断按上限累积、握手校验 `RLM_PROTOCOL_VERSION`、dispose 时 abort 在途 host 请求
 
 ### `packages/tool-python`（`@deepseek-ai/dsh-tool-python`）
 

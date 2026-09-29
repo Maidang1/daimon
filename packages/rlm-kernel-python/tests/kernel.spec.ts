@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -8,7 +8,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { RlmKernelError } from '@deepseek-ai/dsh-rlm-kernel'
-import type { RlmWireEvent } from '@deepseek-ai/dsh-rlm-kernel'
+import type { RlmHostReplyData, RlmWireEvent } from '@deepseek-ai/dsh-rlm-kernel'
 import { PythonRlmKernel } from '../src/index.ts'
 
 const PYTHON = process.env.RLM_TEST_PYTHON ?? 'python3'
@@ -247,5 +247,92 @@ describe('PythonRlmKernel', () => {
     const failed = await handle.restore(payload).catch((error: unknown) => error)
     expect(failed).toBeInstanceOf(RlmKernelError)
     await service.release('k15' as SessionId)
+  })
+
+  it('points the runtime harness state at the DSH home stores', async () => {
+    const home = tempDir('harness-home')
+    const previous = process.env.DSH_HOME
+    process.env.DSH_HOME = home
+    try {
+      const service = await kernel(PYTHON)
+      const handle = await service.acquire(agent('k-harness'))
+      const probe = await handle.execute([
+        'import rlm',
+        's = rlm.get_harness_state()',
+        'print(s.file_path)',
+        's.upsert("memory", "hello", "world", id="m1")',
+        'g = rlm.get_harness_state(global_=True)',
+        'print(g.file_path)',
+      ].join('\n'))
+      expect(probe.status).toBe('ok')
+      const sessionFile = join(realpathSync(home), 'rlm', 'harness', 'sessions', 'k-harness', 'harness_state.json')
+      expect(probe.stdout).toContain(sessionFile)
+      expect(probe.stdout).toContain(join(realpathSync(home), 'rlm', 'harness', 'harness_state.json'))
+      const stored = JSON.parse(readFileSync(sessionFile, 'utf8')) as { entries: { memory: Record<string, { title: string }> } }
+      expect(stored.entries.memory['m1']?.title).toBe('hello')
+      await service.release('k-harness' as SessionId)
+    } finally {
+      if (previous === undefined) delete process.env.DSH_HOME
+      else process.env.DSH_HOME = previous
+    }
+  })
+
+  it('gates concurrent acquires on the bootstrap cell', async () => {
+    const service = await kernel(PYTHON)
+    const [first, second] = await Promise.all([service.acquire(agent('k-race')), service.acquire(agent('k-race'))])
+    expect(second).toBe(first)
+    const bindings = await first.execute('print(type(rlm).__name__)')
+    expect(bindings.status).toBe('ok')
+    expect(bindings.stdout).toContain('_RLMNamespace')
+    await service.release('k-race' as SessionId)
+  })
+
+  it('ignores an abort that fires after its cell settled', async () => {
+    const service = await kernel(PYTHON)
+    const handle = await service.acquire(agent('k-late-abort'))
+    const controller = new AbortController()
+    const first = await handle.execute('1 + 1', { signal: controller.signal })
+    expect(first.status).toBe('ok')
+    controller.abort()
+    const second = await handle.execute('import time\ntime.sleep(0.2)\nprint("survived")')
+    expect(second.status).toBe('ok')
+    expect(second.stdout).toContain('survived')
+    await service.release('k-late-abort' as SessionId)
+  })
+
+  it('attributes output to its own cell when cells overlap', async () => {
+    const service = await kernel(PYTHON)
+    const handle = await service.acquire(agent('k-overlap'))
+    const [a, b] = await Promise.all([
+      handle.execute('print("cell-a")'),
+      handle.execute('print("cell-b")'),
+    ])
+    expect(a.stdout).toContain('cell-a')
+    expect(a.stdout).not.toContain('cell-b')
+    expect(b.stdout).toContain('cell-b')
+    expect(b.stdout).not.toContain('cell-a')
+    await service.release('k-overlap' as SessionId)
+  })
+
+  it('aborts in-flight host handlers when the kernel is disposed', async () => {
+    const service = await kernel(PYTHON)
+    let aborted = false
+    const handle = await service.acquire(agent('k-dispose'), {
+      hostRequests: {
+        'slow.op': (_request, { signal }) => new Promise<RlmHostReplyData>((resolve) => {
+          signal.addEventListener('abort', () => {
+            aborted = true
+            resolve({ status: 'error', error: 'aborted' })
+          })
+        }),
+      },
+    })
+    const cell = handle.execute('import rlm\nawait rlm.host_request("slow.op")')
+    const settled = expect(cell).rejects.toThrow(RlmKernelError)
+    await new Promise(resolve => setTimeout(resolve, 500))
+    await handle.dispose()
+    expect(aborted).toBe(true)
+    await settled
+    await service.release('k-dispose' as SessionId)
   })
 })

@@ -66,7 +66,7 @@ REPL 启动时自动注入一套运行时（`py/rlm/`），模型零 import 即�
 
 `refine.run()` 在回合边界排入一次精炼：agent 自己审视近期行为、更新 harness 条目并重建 system prompt——即**自己改写自己的长期记忆与人格**。全部变更以 proposal 形式原子应用或全不应用，历史可回放、可 rollback。
 
-状态由 `rlm-harness-local` provider 持久化：JSON 落盘在 `<dshHome>/rlm/harness/`，跨进程文件锁 + 原子 rename 提交，损坏文件读作空状态。
+状态由 `rlm-harness-local` provider 持久化：JSON 落盘在 `<dshHome>/rlm/harness/`（全局一份，`sessions/<sessionId>/` 下每会话一份），跨进程文件锁 + 原子 rename 提交，损坏文件读作空状态。kernel 在 spawn 时通过 `RLM_HARNESS_STATE_DIR` 环境变量把 REPL 里的 `rlm.harness` 指向同一批文件，模型写入与 host 读取的是同一份 store。
 
 ### MCP 客户端
 

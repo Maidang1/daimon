@@ -1,0 +1,6 @@
+- Fixed: a concurrent `acquire` no longer receives a handle before the startup bootstrap cell finished — callers now wait on the bootstrap barrier, so cells can never run ahead of the `rlm`/`bash`/`mcp` namespace bindings.
+- Fixed: output events route by their cell id, so overlapping cells each collect their own stdout/stderr/result instead of the first pending cell absorbing (or orphaning) another cell's events.
+- Fixed: an `AbortSignal` that fires after its cell settled no longer interrupts whatever cell happens to be running — the abort listener is removed when the cell settles, and the interrupt request now carries the cell's id so even a late fire cannot hit an unrelated cell.
+- Fixed: startup stderr diagnostics accumulate under the documented cap and are read at failure time, so handshake and exit errors report the actual interpreter traceback instead of an empty or last-chunk-only message.
+- Fixed: the startup handshake rejects a runtime whose announced protocol version differs from `RLM_PROTOCOL_VERSION` instead of accepting it silently.
+- Fixed: disposing a kernel now aborts the `signal` of in-flight host request handlers (honoring the documented `RlmHostRequestContext.signal` contract), and a host reply that races kernel teardown no longer surfaces as an unhandled rejection.

@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## Use this package
 
-在任何其 agent 应当精炼持久 harness 状态——即 agent 在工作时改写的指令——的组合中加载本插件。插件把 `LocalHarnessRefiner` 注册为 `ctx.rlmHarness`，即 [`dsh-rlm-harness`](../rlm-harness/README.zh.md) 定义的缝；RLM host bindings 等 consumer 在启动时大声解析它。它不注入任何服务，因为存储位于 provider 从自身配置解析出的 DSH home 之下。
+在任何其 agent 应当精炼持久 harness 状态——即 agent 在工作时改写的指令——的组合中加载本插件。插件把 `LocalHarnessRefiner` 注册为 `ctx.rlmHarness`，即 [`dsh-rlm-harness`](../rlm-harness/README.zh.md) 定义的缝。RLM kernel provider 在 spawn 时通过 `RLM_HARNESS_STATE_DIR` / `RLM_GLOBAL_HARNESS_STATE_DIR` 把运行时面向模型的 `rlm.harness` 状态指向同一批 store，于是模型代码与 host 侧 `ctx.rlmHarness` 的 consumer 共享每个作用域的同一份 JSON 文件。它不注入任何服务，因为存储位于 provider 从自身配置解析出的 DSH home 之下。
 
 ### Minimal configuration
 

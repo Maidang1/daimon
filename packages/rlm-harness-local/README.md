@@ -25,7 +25,7 @@ Use `dsh-rlm-harness-local` when a composition needs a concrete `ctx.rlmHarness`
 <a id="use-this-package"></a>
 ## Use this package
 
-Load this plugin in any composition whose agents should refine durable harness state — the instructions an agent rewrites while it works. The plugin registers `LocalHarnessRefiner` as `ctx.rlmHarness`, the seam [`dsh-rlm-harness`](../rlm-harness/README.md) defines; consumers such as the RLM host bindings resolve it loud at startup. It injects no services, because the stores live under the DSH home the provider resolves from its own configuration.
+Load this plugin in any composition whose agents should refine durable harness state — the instructions an agent rewrites while it works. The plugin registers `LocalHarnessRefiner` as `ctx.rlmHarness`, the seam [`dsh-rlm-harness`](../rlm-harness/README.md) defines. The RLM kernel provider points the runtime's model-facing `rlm.harness` state at these same stores (via `RLM_HARNESS_STATE_DIR` / `RLM_GLOBAL_HARNESS_STATE_DIR` at spawn), so model code and host-side consumers of `ctx.rlmHarness` share one JSON file per scope. It injects no services, because the stores live under the DSH home the provider resolves from its own configuration.
 
 ### Minimal configuration
 

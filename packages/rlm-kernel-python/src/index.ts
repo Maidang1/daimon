@@ -16,16 +16,19 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import type { Writable } from 'node:stream'
 import { createInterface } from 'node:readline'
-import { delimiter, join } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import type { Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import { globalHarnessStatePath, localHarnessStatePath } from '@deepseek-ai/dsh-rlm-harness-local'
 import {
   encodeRlmRequest,
   parseRlmEvent,
+  RLM_PROTOCOL_VERSION,
   RlmKernel,
   RlmKernelError,
 } from '@deepseek-ai/dsh-rlm-kernel'
@@ -122,6 +125,10 @@ interface KernelEntry {
   releaseReady: () => void
   rejectReady: (error: Error) => void
   readySettled: boolean
+  bootstrapped: Promise<void>
+  releaseBootstrapped: () => void
+  rejectBootstrapped: (error: Error) => void
+  hostRequestControllers: Set<AbortController>
   dead: Error | undefined
   disposed: boolean
   nextId: number
@@ -152,6 +159,24 @@ function assertServiceableConfig(config: Config): void {
 function appendCapped(current: string, text: string, cap: number): string {
   const merged = `${current}${text}`
   return merged.length > cap ? merged.slice(merged.length - cap) : merged
+}
+
+/**
+ * Environment pointing the runtime's harness state at the same JSON stores the
+ * Local harness refiner serves, so the model-facing `rlm.harness` API and the
+ * host-side `ctx.rlmHarness` seam read and write one file per scope instead of
+ * drifting into two divergent stores. Path computation is imported from the
+ * provider package so the two sides can never disagree on the layout.
+ *
+ * @param sessionId - session the spawned kernel belongs to.
+ * @returns the harness-related environment for the child interpreter.
+ */
+function harnessStateEnv(sessionId: SessionId): Record<string, string> {
+  const home = resolveDshHome(undefined)
+  return {
+    RLM_HARNESS_STATE_DIR: dirname(localHarnessStatePath(home, sessionId)),
+    RLM_GLOBAL_HARNESS_STATE_DIR: dirname(globalHarnessStatePath(home)),
+  }
 }
 
 /** CPython kernel provider registering itself as `ctx.rlmKernel`. */
@@ -193,8 +218,15 @@ export class PythonRlmKernel extends RlmKernel {
   async acquire(agent: Agent, options?: RlmKernelAcquireOptions): Promise<RlmKernelHandle> {
     const existing = this.entries.get(agent.id)
     if (existing !== undefined && !existing.disposed && existing.dead === undefined) {
-      existing.handle ??= this.createHandle(existing)
-      return existing.handle
+      // A concurrent acquire must not run cells before the bootstrap cell
+      // bound the runtime conveniences; wait out the startup that registered
+      // this entry, then re-read liveness because the kernel may have died
+      // or been disposed while we waited.
+      await existing.bootstrapped
+      if (!existing.disposed && existing.dead === undefined) {
+        existing.handle ??= this.createHandle(existing)
+        return existing.handle
+      }
     }
     const entry = this.createEntry(agent, options?.hostRequests ?? {})
     this.entries.set(agent.id, entry)
@@ -202,10 +234,13 @@ export class PythonRlmKernel extends RlmKernel {
       await this.start(entry, options?.pythonPath ?? [])
       await this.runBootstrap(entry)
     } catch (error: unknown) {
+      const failure = error instanceof Error ? error : new RlmKernelError('rlm-kernel-python: startup failed')
+      entry.rejectBootstrapped(failure)
       if (this.entries.get(agent.id) === entry) this.entries.delete(agent.id)
       await this.disposeEntry(entry)
-      throw error instanceof Error ? error : new RlmKernelError('rlm-kernel-python: startup failed')
+      throw failure
     }
+    entry.releaseBootstrapped()
     entry.handle ??= this.createHandle(entry)
     return entry.handle
   }
@@ -265,7 +300,11 @@ export class PythonRlmKernel extends RlmKernel {
 
   private createEntry(agent: Agent, hostRequests: RlmHostRequestHandlers): KernelEntry {
     const handshake = Promise.withResolvers<void>()
-    const ready = handshake.promise
+    const bootstrap = Promise.withResolvers<void>()
+    // A failed startup rejects this promise whether or not a concurrent
+    // acquirer is awaiting it; pre-attach a sink so the no-waiter case does
+    // not surface as an unhandled rejection.
+    void bootstrap.promise.catch(() => {})
     return {
       agent,
       hostRequests,
@@ -276,10 +315,14 @@ export class PythonRlmKernel extends RlmKernel {
       orphanStdout: '',
       orphanStderr: '',
       orphanDisplay: [],
-      ready,
+      ready: handshake.promise,
       releaseReady: handshake.resolve,
       rejectReady: handshake.reject,
       readySettled: false,
+      bootstrapped: bootstrap.promise,
+      releaseBootstrapped: bootstrap.resolve,
+      rejectBootstrapped: bootstrap.reject,
+      hostRequestControllers: new Set(),
       dead: undefined,
       disposed: false,
       nextId: 1,
@@ -294,24 +337,27 @@ export class PythonRlmKernel extends RlmKernel {
     // Typed as the wide ChildProcess, not the stdio-tuple overload's narrow
     // stream shape: a kernel host may hand back a child with no pipes.
     const child: ChildProcess = spawn(interpreter.bin, ['-u', '-m', 'rlm.repl'], {
-      env: { ...process.env, PYTHONPATH: searchPath },
+      env: { ...process.env, PYTHONPATH: searchPath, ...harnessStateEnv(entry.agent.id) },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     entry.child = child
     entry.stdin = child.stdin ?? undefined
-    let stderr = ''
+    // Shared box: startup diagnostics accumulate under the cap and are read at
+    // failure time, so both the handshake race and the pump report the actual
+    // traceback instead of the last chunk seen (or an empty string).
+    const diagnostic = { text: '' }
     child.stderr?.on('data', (chunk: Buffer) => {
-      stderr = chunk.toString('utf8').slice(-STDERR_DIAGNOSTIC_CHARS)
+      diagnostic.text = appendCapped(diagnostic.text, chunk.toString('utf8'), STDERR_DIAGNOSTIC_CHARS)
     })
     const closed = new Promise<void>((resolveClose) => { child.on('close', () => { resolveClose() }) })
     child.on('error', (error: Error) => { this.failEntry(entry, error) })
-    void this.pump(entry, child, stderr)
+    void this.pump(entry, child, diagnostic)
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
       await Promise.race([
         entry.ready,
         closed.then((): never => {
-          throw new RlmKernelError(`rlm-kernel-python: interpreter exited before the handshake: ${stderr.trim()}`)
+          throw new RlmKernelError(`rlm-kernel-python: interpreter exited before the handshake: ${diagnostic.text.trim()}`)
         }),
         new Promise<never>((_resolve, rejectTimeout) => {
           timer = setTimeout(() => {
@@ -324,7 +370,7 @@ export class PythonRlmKernel extends RlmKernel {
     }
   }
 
-  private async pump(entry: KernelEntry, child: ChildProcess, stderr: string): Promise<void> {
+  private async pump(entry: KernelEntry, child: ChildProcess, diagnostic: { text: string }): Promise<void> {
     const stdout = child.stdout
     if (stdout === null) {
       this.failEntry(entry, new RlmKernelError('rlm-kernel-python: interpreter has no stdout pipe'))
@@ -338,9 +384,9 @@ export class PythonRlmKernel extends RlmKernel {
     }
     if (!entry.readySettled) {
       entry.readySettled = true
-      entry.rejectReady(new RlmKernelError(`rlm-kernel-python: interpreter exited before the handshake: ${stderr.trim()}`))
+      entry.rejectReady(new RlmKernelError(`rlm-kernel-python: interpreter exited before the handshake: ${diagnostic.text.trim()}`))
     }
-    this.failEntry(entry, new RlmKernelError(`rlm-kernel-python: interpreter exited: ${stderr.trim()}`))
+    this.failEntry(entry, new RlmKernelError(`rlm-kernel-python: interpreter exited: ${diagnostic.text.trim()}`))
   }
 
   private failEntry(entry: KernelEntry, error: Error): void {
@@ -362,7 +408,13 @@ export class PythonRlmKernel extends RlmKernel {
     if (event.event === 'ready') {
       if (!entry.readySettled) {
         entry.readySettled = true
-        entry.releaseReady()
+        if (event.protocol === RLM_PROTOCOL_VERSION) {
+          entry.releaseReady()
+        } else {
+          entry.rejectReady(new RlmKernelError(
+            `rlm-kernel-python: protocol version mismatch: host speaks ${String(RLM_PROTOCOL_VERSION)}, runtime announced ${String(event.protocol)}`,
+          ))
+        }
       }
       return
     }
@@ -378,9 +430,7 @@ export class PythonRlmKernel extends RlmKernel {
   }
 
   private collect(entry: KernelEntry, event: RlmOutputEvent | RlmResultEvent | RlmDisplayEvent | RlmErrorEvent): void {
-    const active = this.activeExecute(entry)
-    const mine = active !== undefined && (event.id === active.id || event.id === null)
-    const owner = mine ? active : undefined
+    const owner = this.eventOwner(entry, event)
     const cap = this.config.maxOutputChars.get()
     switch (event.event) {
       case 'stdout':
@@ -414,6 +464,25 @@ export class PythonRlmKernel extends RlmKernel {
         owner.onEvent?.(event)
       }
     }
+  }
+
+  /**
+   * The execute cell one event belongs to. Id'd events route by identity, so
+   * with more than one cell in flight each cell's output lands in its own
+   * capture instead of the first pending one's; unattributed bytes ride the
+   * currently running cell, falling back to the orphan buffers when no cell
+   * is active.
+   *
+   * @param entry - the kernel entry the event arrived on.
+   * @param event - the output-side event to attribute.
+   * @returns the owning cell, or `undefined` for orphan output.
+   */
+  private eventOwner(entry: KernelEntry, event: { readonly id: string | null }): PendingRequest | undefined {
+    if (event.id !== null) {
+      const pending = entry.pending.get(event.id)
+      return pending?.kind === 'execute' ? pending : undefined
+    }
+    return this.activeExecute(entry)
   }
 
   private activeExecute(entry: KernelEntry): PendingRequest | undefined {
@@ -506,14 +575,25 @@ export class PythonRlmKernel extends RlmKernel {
     const id = String(entry.nextId)
     entry.nextId += 1
     const settled = this.register<RlmCellResult>(entry, id, 'execute', options?.onEvent)
-    if (options?.signal?.aborted === true) this.submit(entry, { type: 'interrupt' }, id)
-    options?.signal?.addEventListener('abort', () => {
-      try {
-        this.writeRequest(entry, { type: 'interrupt' })
-      } catch {
-        // The kernel already stopped; the in-flight cell settles from the exit.
+    const signal = options?.signal
+    if (signal !== undefined) {
+      // The interrupt targets this cell's id: a late abort can never kill an
+      // unrelated cell that happens to be running when the signal fires.
+      const interrupt = () => {
+        try {
+          this.writeRequest(entry, { type: 'interrupt', id })
+        } catch {
+          // The kernel already stopped; the in-flight cell settles from the exit.
+        }
       }
-    }, { once: true })
+      if (signal.aborted) {
+        interrupt()
+      } else {
+        signal.addEventListener('abort', interrupt, { once: true })
+        const forget = () => { signal.removeEventListener('abort', interrupt) }
+        void settled.then(forget, forget)
+      }
+    }
     this.submit(entry, { type: 'execute', id, code }, id)
     return settled
   }
@@ -584,22 +664,35 @@ export class PythonRlmKernel extends RlmKernel {
     const type = hostRequestType(event)
     const handler = type === undefined ? undefined : this.hostRequestHandler(entry.hostRequests, type)
     const controller = new AbortController()
+    entry.hostRequestControllers.add(controller)
     let data: RlmHostReplyData
-    if (handler === undefined) {
-      data = { status: 'error', error: `rlm-kernel-python: no host handler for "${type ?? ''}"` }
-    } else {
-      try {
-        data = await handler(event, { agent: entry.agent, signal: controller.signal })
-      } catch (error: unknown) {
-        data = { status: 'error', error: error instanceof Error ? error.message : String(error) }
+    try {
+      if (handler === undefined) {
+        data = { status: 'error', error: `rlm-kernel-python: no host handler for "${type ?? ''}"` }
+      } else {
+        try {
+          data = await handler(event, { agent: entry.agent, signal: controller.signal })
+        } catch (error: unknown) {
+          data = { status: 'error', error: error instanceof Error ? error.message : String(error) }
+        }
       }
+    } finally {
+      entry.hostRequestControllers.delete(controller)
     }
-    this.writeRequest(entry, { type: 'host_reply', id: event.id, data })
+    try {
+      this.writeRequest(entry, { type: 'host_reply', id: event.id, data })
+    } catch {
+      // The kernel stopped while the handler ran; a dead child needs no reply.
+    }
   }
 
   private async disposeEntry(entry: KernelEntry): Promise<void> {
     if (entry.disposed) return
     entry.disposed = true
+    // Honor the handle contract: handlers awaiting the dispose signal see the
+    // abort before the kernel teardown fails their request's cell.
+    for (const controller of entry.hostRequestControllers) controller.abort()
+    entry.hostRequestControllers.clear()
     const child = entry.child
     entry.child = undefined
     entry.stdin = undefined
