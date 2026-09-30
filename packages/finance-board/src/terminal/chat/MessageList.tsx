@@ -134,14 +134,21 @@ function Bubble({ msg }: { msg: ChatMessage }): React.ReactElement {
       </div>
     )
   }
-  return (
-    <div style={{
-      margin: '8px 0', fontSize: 12, textAlign: 'center',
-      color: msg.tone === 'error' ? C.up : 'var(--fb-text-4)',
-    }}>
-      {msg.text}
-    </div>
-  )
+  // `notice` is the fallback render, so it is stated rather than implied: the
+  // reachability assertion below fails to compile when a new kind is added and
+  // no branch handles it, instead of silently rendering it as a notice.
+  if (msg.kind === 'notice') {
+    return (
+      <div style={{
+        margin: '8px 0', fontSize: 12, textAlign: 'center',
+        color: msg.tone === 'error' ? C.up : 'var(--fb-text-4)',
+      }}>
+        {msg.text}
+      </div>
+    )
+  }
+  const never: never = msg
+  throw new Error(`unrendered chat message kind: ${JSON.stringify(never)}`)
 }
 
 export function MessageList({ messages }: { messages: ChatMessage[] }): React.ReactElement {

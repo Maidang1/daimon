@@ -1,25 +1,24 @@
 /**
- * Finance 终端 main panel: tab bar + quick-action toolbar over the live
- * snapshot. Polls `/finance/api/status` every 5s and reloads the snapshot
- * only when its mtime changed, so scroll state survives refreshes.
+ * The interactive 看板 panel: KPI row, fund grid and four tabs, rendered from
+ * `state/ui_snapshot.json` by the shared finance store.
  *
- * This component is shared by two hosts: the new terminal UI (src/terminal/,
- * terminal.css loaded — fb-* classes resolve) and the legacy client bundle
- * injected into the official SPA sidebar (no terminal.css — inline fallbacks
- * carry the same dsw values). Keep base styles inline; classes only enhance.
+ * This component owns job *orchestration* (starting them, announcing
+ * completions, retrying) — the documents themselves come from
+ * `client/financeStore.ts`, so there is exactly one poll in the app.
+ *
+ * @module @deepseek-ai/dsh-finance-board/client/TerminalPanel
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  fetchSnapshot, fetchStatus, startJob,
-  type BoardStatus, type JobAction, type JobRecord, type Snapshot,
-} from './api.js'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { describeError, startJob, type JobAction, type JobRecord } from './api.js'
+import { finance } from './financeStore.js'
+import { fmtDateTime } from './format.js'
+import { C } from './format.js'
 import { QuickOpModal } from './QuickOpModal.js'
-import { OverviewTab } from './tabs/OverviewTab.js'
-import { HoldingsTab } from './tabs/HoldingsTab.js'
 import { HotspotsTab } from './tabs/HotspotsTab.js'
+import { HoldingsTab } from './tabs/HoldingsTab.js'
 import { OpsTab } from './tabs/OpsTab.js'
-import { C, fmtDateTime } from './format.js'
+import { OverviewTab } from './tabs/OverviewTab.js'
 
 export type BoardTab = 'overview' | 'holdings' | 'hotspots' | 'ops'
 
@@ -30,91 +29,62 @@ const TABS: { key: BoardTab; label: string }[] = [
   { key: 'ops', label: '交易流水' },
 ]
 
-const JOB_LABELS: Record<string, string> = {
+/** Total by construction, so a label lookup can never render `undefined`. */
+const JOB_LABELS: Record<JobAction, string> = {
   daily_job: '每日流水线',
   refresh_dashboard: '刷新看板',
   deep_snapshot: '深度快照（含行业穿透）',
   daily_briefing: '每日简报',
 }
 
-const GRAD = 'linear-gradient(135deg,#5686fe,#7aaaff)'
+/** 记一笔 with no holdings has nothing to record. */
+const NO_HOLDINGS_HINT = '还没有持仓——先让 daimon 建仓（set_holding）再记一笔'
 
-export function TerminalPanel({ tab: tabProp, onTabChange, onFundClick }: {
-  /** Controlled tab (optional — defaults to internal state). */
-  tab?: BoardTab
-  onTabChange?: (tab: BoardTab) => void
-  /** 基金卡/持仓行点击 → 上层切到下钻视图。缺省时卡片不可点。 */
+const GRAD = 'var(--fb-grad)'
+
+/** One skeleton placeholder; the seven previous copies were identical. */
+const skeleton = (height: number, flex: string, minWidth: number): React.CSSProperties => ({
+  height, flex, minWidth, borderRadius: 12, background: 'var(--fb-skeleton, #ffffff14)',
+})
+
+export function TerminalPanel({ tab, onTabChange, onFundClick }: {
+  /** Which tab is showing. Owned by the host view, so there is one source. */
+  tab: BoardTab
+  onTabChange: (tab: BoardTab) => void
+  /** 基金卡/持仓行点击 → 上层切到下钻视图。 */
   onFundClick?: (code: string) => void
-} = {}): React.ReactElement {
-  const [tabInternal, setTabInternal] = useState<BoardTab>(tabProp ?? 'overview')
-  const tab = tabProp ?? tabInternal
-  const setTab = (t: BoardTab): void => {
-    setTabInternal(t)
-    onTabChange?.(t)
-  }
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
-  const [loaded, setLoaded] = useState(false)
-  const [updatedAt, setUpdatedAt] = useState<string | null>(null)
-  const [jobs, setJobs] = useState<JobRecord[]>([])
+}): React.ReactElement {
+  const state = useSyncExternalStore(finance.subscribe, finance.getState)
   const [jobError, setJobError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [quickOp, setQuickOp] = useState<string | null>(null)
-  const [busyJob, setBusyJob] = useState<string | null>(null)
-  const snapshotMtime = useRef<string | null>(null)
-  /** Finished job ids already announced — seeded on first poll so historical jobs stay silent. */
-  const announcedJobs = useRef<Set<string> | null>(null)
+  const [busyJob, setBusyJob] = useState<JobAction | null>(null)
+  /** Mount time, so only jobs that finished after it are announced. */
+  const mountedAt = useRef(Date.now())
 
-  const loadSnapshot = useCallback(async (): Promise<void> => {
-    try {
-      setSnapshot(await fetchSnapshot())
-    } catch {
-      // Keep the previous frame on transient read failures.
-    } finally {
-      setLoaded(true)
-    }
-  }, [])
+  const resource = state.snapshot.resource
+  const snapshot = resource.kind === 'ready' ? resource.value : null
+  const loaded = resource.kind !== 'loading'
+  const jobs = state.jobs
+  const updatedAt = state.updatedAt
 
+  // Announce a completion once. Diffing on the record's own `updatedAt` (rather
+  // than pre-marking everything already terminal at the first poll) means a job
+  // that finishes between mount and that poll is still announced.
+  const announced = useRef<Set<string>>(new Set())
   useEffect(() => {
-    void loadSnapshot()
-    let stopped = false
-    const poll = async (): Promise<void> => {
-      try {
-        const status: BoardStatus = await fetchStatus()
-        if (stopped) return
-        const next = status.jobs
-        if (announcedJobs.current === null) {
-          // First poll: only jobs that finished after mount may announce.
-          announcedJobs.current = new Set(next.filter(j => j.status !== 'running').map(j => j.id))
-        } else {
-          for (const j of next) {
-            if (j.status === 'running' || announcedJobs.current.has(j.id)) continue
-            announcedJobs.current.add(j.id)
-            const label = JOB_LABELS[j.action] ?? j.action
-            if (j.status === 'success') {
-              const funds = (j.result as { funds?: number } | undefined)?.funds
-              setToast(`✅ ${label} 完成${funds !== undefined ? `（${funds} 只基金）` : ''}`)
-            } else {
-              setToast(`✗ ${label} 失败：${j.error ?? '未知错误'}`)
-            }
-          }
-        }
-        setJobs(next)
-        setUpdatedAt(status.snapshot.mtime ?? status.dashboard.mtime)
-        if (status.snapshot.mtime !== snapshotMtime.current) {
-          snapshotMtime.current = status.snapshot.mtime
-          await loadSnapshot()
-        }
-      } catch {
-        // Keep the previous frame on transient read failures.
+    for (const job of jobs) {
+      if (job.status === 'running' || announced.current.has(job.id)) continue
+      if (Date.parse(job.updatedAt) < mountedAt.current) continue
+      announced.current.add(job.id)
+      if (job.status === 'success') {
+        const funds = job.result?.funds
+        setToast(`✅ ${JOB_LABELS[job.action]} 完成${funds !== undefined ? `（${funds} 只基金）` : ''}`)
+      } else {
+        setToast(`✗ ${JOB_LABELS[job.action]} 失败：${job.error ?? '未知错误'}`)
       }
     }
-    void poll()
-    const timer = setInterval(() => void poll(), 5_000)
-    return () => {
-      stopped = true
-      clearInterval(timer)
-    }
-  }, [loadSnapshot])
+  }, [jobs])
 
   useEffect(() => {
     if (!toast) return
@@ -122,19 +92,16 @@ export function TerminalPanel({ tab: tabProp, onTabChange, onFundClick }: {
     return () => clearTimeout(t)
   }, [toast])
 
-  const runJob = async (action: JobAction): Promise<void> => {
+  const runJob = (action: JobAction): void => {
     setJobError(null)
     setBusyJob(action)
-    try {
-      await startJob(action)
-      setToast(`已启动：${JOB_LABELS[action] ?? action}`)
-      const status = await fetchStatus()
-      setJobs(status.jobs)
-    } catch (err) {
-      setJobError(String(err instanceof Error ? err.message : err))
-    } finally {
-      setBusyJob(null)
-    }
+    // The shared poll picks the result up within one interval; no second
+    // round-trip is needed to refresh the job list.
+    void startJob(action)
+      .then(() => setToast(`已启动：${JOB_LABELS[action]}`))
+      .then(() => finance.refresh(), describeError)
+      .catch(err => setJobError(describeError(err)))
+      .finally(() => setBusyJob(null))
   }
 
   /** An action button is disabled while its own job is in flight. */
@@ -173,14 +140,16 @@ export function TerminalPanel({ tab: tabProp, onTabChange, onFundClick }: {
         </span>
         <span style={{ flex: 1 }} />
         <button style={primaryBtn(actionRunning('daily_job'))} disabled={actionRunning('daily_job')}
-          onClick={() => void runJob('daily_job')}>
+          onClick={() => runJob('daily_job')}>
           {actionRunning('daily_job') ? '运行中…' : '生成日报'}
         </button>
         <button style={{ ...ghostBtn, opacity: actionRunning('deep_snapshot') ? 0.55 : 1 }}
-          disabled={actionRunning('deep_snapshot')} onClick={() => void runJob('deep_snapshot')}>
+          disabled={actionRunning('deep_snapshot')} onClick={() => runJob('deep_snapshot')}>
           {actionRunning('deep_snapshot') ? '运行中…' : '深度快照'}
         </button>
-        <button style={ghostBtn} onClick={() => setQuickOp(snapshot?.holdings[0]?.code ?? '')}>
+        <button style={ghostBtn} disabled={!snapshot?.holdings.length}
+          title={snapshot?.holdings.length ? undefined : NO_HOLDINGS_HINT}
+          onClick={() => setQuickOp(snapshot?.holdings[0]?.code ?? '')}>
           记一笔
         </button>
       </div>
@@ -190,7 +159,7 @@ export function TerminalPanel({ tab: tabProp, onTabChange, onFundClick }: {
         flexShrink: 0, overflowX: 'auto',
       }}>
         {TABS.map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)} style={{
+          <button key={t.key} onClick={() => onTabChange(t.key)} style={{
             position: 'relative', background: 'transparent', border: 'none', cursor: 'pointer',
             fontSize: 13, padding: '10px 4px', marginRight: 20, fontFamily: 'inherit',
             color: tab === t.key ? C.text : C.dim,
@@ -219,12 +188,12 @@ export function TerminalPanel({ tab: tabProp, onTabChange, onFundClick }: {
             position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
             background: failedJob || jobError ? C.up : C.accent,
           }} />
-          {runningJob && <span>⏳ {JOB_LABELS[runningJob.action] ?? runningJob.action} 运行中…</span>}
+          {runningJob && <span>⏳ {JOB_LABELS[runningJob.action]} 运行中…</span>}
           {failedJob && <span>✗ {JOB_LABELS[failedJob.action]} 失败：{failedJob.error ?? '未知错误'}</span>}
           {jobError && <span>✗ {jobError}</span>}
           <span style={{ flex: 1 }} />
           {(failedJob || jobError) && (
-            <button onClick={() => { setJobError(null); void runJob((failedJob?.action as JobAction | undefined) ?? 'refresh_dashboard') }}
+            <button onClick={() => { setJobError(null); runJob(failedJob?.action ?? 'refresh_dashboard') }}
               style={{ ...ghostBtn, fontSize: 11, padding: '3px 10px' }}>
               重试
             </button>
@@ -233,26 +202,19 @@ export function TerminalPanel({ tab: tabProp, onTabChange, onFundClick }: {
       )}
 
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {!loaded ? (
-          <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {!loaded ? (          <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               {[0, 1, 2, 3].map(i => (
-                <div key={i} className="fb-skeleton" style={{
-                  height: 76, flex: '1 1 140px', minWidth: 140, borderRadius: 12,
-                  background: 'var(--fb-skeleton, #ffffff14)',
-                }} />
+                <div key={i} className="fb-skeleton" style={skeleton(76, '1 1 140px', 140)} />
               ))}
             </div>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               {[0, 1, 2, 3, 4, 5].map(i => (
-                <div key={i} className="fb-skeleton" style={{
-                  height: 150, flex: '1 1 240px', minWidth: 240, borderRadius: 12,
-                  background: 'var(--fb-skeleton, #ffffff14)',
-                }} />
+                <div key={i} className="fb-skeleton" style={skeleton(150, '1 1 240px', 240)} />
               ))}
             </div>
           </div>
-        ) : !snapshot ? (
+        ) : resource.kind === 'missing' ? (
           <div style={{ margin: '80px auto', maxWidth: 520, padding: '0 24px', lineHeight: 1.9, fontSize: 13 }}>
             <h2 style={{ fontSize: 18 }}>Finance 终端尚未初始化</h2>
             <p style={{ color: C.dim }}>
@@ -262,18 +224,23 @@ export function TerminalPanel({ tab: tabProp, onTabChange, onFundClick }: {
             <pre style={{ background: C.panel, padding: 12, borderRadius: 8, fontSize: 12 }}>
               {'import finance\nawait finance.set_holding("008401", shares=1000, cost_amount=1234.5)\npath = await finance.run_daily_job()'}
             </pre>
-            <button style={{ ...primaryBtn(false), padding: '8px 20px' }} onClick={() => void runJob('daily_job')}>
+            <button style={{ ...primaryBtn(false), padding: '8px 20px' }} onClick={() => runJob('daily_job')}>
               启动每日流水线
             </button>
           </div>
+        ) : resource.kind === 'failed' ? (
+          <div style={{ margin: '80px auto', maxWidth: 520, padding: '0 24px', lineHeight: 1.9, fontSize: 13 }}>
+            <h2 style={{ fontSize: 18 }}>快照读取失败</h2>
+            <p style={{ color: C.dim }}>{resource.error}</p>
+          </div>
         ) : (
           <>
-            {tab === 'overview' && <OverviewTab snapshot={snapshot} onFundClick={onFundClick} />}
+            {tab === 'overview' && <OverviewTab snapshot={resource.value} onFundClick={onFundClick} />}
             {tab === 'holdings' && (
-              <HoldingsTab snapshot={snapshot} onQuickOp={code => setQuickOp(code)} onFundClick={onFundClick} />
+              <HoldingsTab snapshot={resource.value} onQuickOp={code => setQuickOp(code)} onFundClick={onFundClick} />
             )}
-            {tab === 'hotspots' && <HotspotsTab snapshot={snapshot} />}
-            {tab === 'ops' && <OpsTab snapshot={snapshot} />}
+            {tab === 'hotspots' && <HotspotsTab snapshot={resource.value} />}
+            {tab === 'ops' && <OpsTab snapshot={resource.value} />}
           </>
         )}
       </div>
@@ -286,7 +253,7 @@ export function TerminalPanel({ tab: tabProp, onTabChange, onFundClick }: {
           onDone={msg => {
             setQuickOp(null)
             setToast(msg)
-            void loadSnapshot()
+            finance.refresh()
           }}
         />
       )}

@@ -1,25 +1,41 @@
 /**
  * AI 首页（默认落地页）：问候 + 提问框 + 快捷建议 + 今日主要指数 + 持仓相关新闻。
  *
- * 数据来自 agent 每日生成的 briefing.json（GET /finance/api/briefing）；
- * 404 时降级为「今日简报未生成」卡，主按钮触发 daily_briefing job 并每 5 秒
- * 轮询直到简报落盘。所有可点元素最终都收敛为一次 sendPrompt 并切到对话页。
+ * 数据来自 financeStore（`GET /finance/api/briefing`），首页只负责渲染。
+ * 简报 404 → `missing`，降级为「今日简报未生成」卡；主按钮触发
+ * daily_briefing job，之后由轮询自动收到落盘的简报——这里不再自建轮询器。
+ * 所有可点元素最终都收敛为一次 sendPrompt 并切到对话页。
+ *
+ * @module @deepseek-ai/dsh-finance-board/terminal/home/HomeView
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchBriefing, startJob, type Briefing } from '../../client/api.js'
-import { Composer } from '../chat/ChatPanel.js'
+import { useCallback, useState } from 'react'
+import { describeError, isJobConflict, startJob, type BriefingNews } from '../../client/api.js'
+import { useFinance } from '../../client/financeStore.js'
+import { Composer } from '../ui/Composer.js'
 
-const DEFAULT_SUGGESTIONS = [
+/** 首页建议 chips 的兜底文案（服务端不再自带一份，避免两处时钟/口径漂移）。 */
+const FALLBACK_SUGGESTIONS = [
   '生成今日投资日报',
   '今天持仓表现如何？',
   '扫描我持仓的风险敞口',
 ]
 
-const IMPACT_META: Record<string, { label: string; cls: string }> = {
+/** 指数涨跌 → 提问 prompt。 */
+function indexPrompt(name: string, pct: number): string {
+  return `今天${name}为什么${pct >= 0 ? '涨' : '跌'}？对我的持仓有什么影响？`
+}
+
+const IMPACT_META = {
   bullish: { label: '偏利好', cls: 'fb-chip fb-chip-up' },
   watch: { label: '关注', cls: 'fb-chip fb-chip-warn' },
   bearish: { label: '偏利空', cls: 'fb-chip fb-chip-down' },
+} as const
+
+/** One impact chip, shared with the fund detail view. */
+export function ImpactChip({ impact }: { impact: 'bullish' | 'watch' | 'bearish' }): React.ReactElement {
+  const meta = IMPACT_META[impact] ?? IMPACT_META.watch
+  return <span className={meta.cls}>{meta.label}</span>
 }
 
 function greetingByTime(): string {
@@ -58,10 +74,9 @@ function IndexCard({ name, value, pct, onClick }: {
 }
 
 function NewsCard({ news, onClick }: {
-  news: NonNullable<Briefing['news']>[number]
+  news: BriefingNews
   onClick: () => void
 }): React.ReactElement {
-  const impact = IMPACT_META[news.impact ?? 'watch'] ?? IMPACT_META.watch
   return (
     <button
       className="fb-card hoverable fb-fade-up"
@@ -73,7 +88,7 @@ function NewsCard({ news, onClick }: {
     >
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, lineHeight: 1.6 }}>{news.title}</div>
-        <span className={impact.cls}>{impact.label}</span>
+        <ImpactChip impact={news.impact ?? 'watch'} />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 11, color: 'var(--fb-text-4)' }}>
@@ -91,51 +106,25 @@ function NewsCard({ news, onClick }: {
 }
 
 export function HomeView({ onSend }: { onSend: (text: string) => void }): React.ReactElement {
-  const [briefing, setBriefing] = useState<Briefing | null>(null)
-  const [loaded, setLoaded] = useState(false)
-  const [generating, setGenerating] = useState(false)
+  const finance = useFinance()
+  const briefing = finance.briefing
   const [genError, setGenError] = useState<string | null>(null)
-  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const load = useCallback(async (): Promise<void> => {
-    try {
-      const b = await fetchBriefing()
-      setBriefing(b)
-      if (b) {
-        setGenerating(false)
-        if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null }
-      }
-    } catch {
-      // 读取失败保留当前帧
-    } finally {
-      setLoaded(true)
-    }
+  const generate = useCallback((): void => {
+    setGenError(null)
+    void startJob('daily_briefing').catch(err => {
+      // 409 = 已在跑，不是错误：共享轮询会在简报落盘时把它送进来。
+      if (isJobConflict(err)) return
+      setGenError(describeError(err))
+    })
   }, [])
 
-  useEffect(() => {
-    void load()
-    return () => { if (pollTimer.current) clearInterval(pollTimer.current) }
-  }, [load])
-
-  const generate = async (): Promise<void> => {
-    setGenError(null)
-    setGenerating(true)
-    try {
-      await startJob('daily_briefing')
-    } catch (err) {
-      // 409 = 已在跑，继续轮询即可
-      if (!String(err instanceof Error ? err.message : err).includes('already running')) {
-        setGenError(String(err instanceof Error ? err.message : err))
-        setGenerating(false)
-        return
-      }
-    }
-    if (!pollTimer.current) pollTimer.current = setInterval(() => void load(), 5_000)
-  }
-
-  const suggestions = briefing?.suggestions?.length ? briefing.suggestions : DEFAULT_SUGGESTIONS
-  const indices = briefing?.indices ?? []
-  const news = briefing?.news ?? []
+  const doc = briefing.resource.kind === 'ready' ? briefing.resource.value : null
+  const suggestions = doc?.suggestions?.length ? doc.suggestions : FALLBACK_SUGGESTIONS
+  const indices = doc?.indices ?? []
+  const news = doc?.news ?? []
+  // 生成态直接来自 job 记录，不再自建「轮询直到简报出现」的定时器。
+  const generating = finance.jobs.some(j => j.action === 'daily_briefing' && j.status === 'running')
 
   return (
     <div className="fb-scroll" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
@@ -146,7 +135,7 @@ export function HomeView({ onSend }: { onSend: (text: string) => void }): React.
         {/* 问候 */}
         <div className="fb-fade-up">
           <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.01em' }}>
-            {briefing?.greeting ?? greetingByTime()}，我是 daimon
+            {doc?.greeting ?? greetingByTime()}，我是 daimon
           </div>
           <div style={{ fontSize: 13, color: 'var(--fb-text-3)', marginTop: 6 }}>
             你的 AI 投资助手 · 问行情、问持仓、问新闻，直接开口
@@ -171,7 +160,7 @@ export function HomeView({ onSend }: { onSend: (text: string) => void }): React.
         {indices.length > 0 && (
           <section>
             <div style={{ fontSize: 12, color: 'var(--fb-text-4)', marginBottom: 10, letterSpacing: '0.04em' }}>
-              今日主要指数 · {briefing?.date}
+              今日主要指数 · {doc?.date}
             </div>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               {indices.map(ix => (
@@ -180,7 +169,7 @@ export function HomeView({ onSend }: { onSend: (text: string) => void }): React.
                   name={ix.name}
                   value={ix.value}
                   pct={ix.pct}
-                  onClick={() => onSend(`今天${ix.name}为什么${ix.pct >= 0 ? '涨' : '跌'}？对我的持仓有什么影响？`)}
+                  onClick={() => onSend(indexPrompt(ix.name, ix.pct))}
                 />
               ))}
             </div>
@@ -199,7 +188,7 @@ export function HomeView({ onSend }: { onSend: (text: string) => void }): React.
               ))}
             </div>
           )}
-          {loaded && !briefing && (
+          {briefing.resource.kind === 'missing' && (
             <div className="fb-card" style={{ padding: '20px', textAlign: 'center' }}>
               <div style={{ fontSize: 13, color: 'var(--fb-text-2)', marginBottom: 4 }}>今日简报尚未生成</div>
               <div style={{ fontSize: 12, color: 'var(--fb-text-4)', marginBottom: 14 }}>
@@ -208,7 +197,7 @@ export function HomeView({ onSend }: { onSend: (text: string) => void }): React.
               <button
                 className="fb-btn fb-btn-primary"
                 disabled={generating}
-                onClick={() => void generate()}
+                onClick={generate}
               >
                 {generating
                   ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>生成中 <span className="fb-dots"><span /><span /><span /></span></span>
@@ -217,7 +206,10 @@ export function HomeView({ onSend }: { onSend: (text: string) => void }): React.
               {genError && <div style={{ fontSize: 12, color: 'var(--fb-up)', marginTop: 10 }}>{genError}</div>}
             </div>
           )}
-          {loaded && briefing && news.length === 0 && (
+          {briefing.resource.kind === 'failed' && (
+            <div style={{ fontSize: 12, color: 'var(--fb-up)' }}>简报读取失败：{briefing.resource.error}</div>
+          )}
+          {briefing.resource.kind === 'ready' && news.length === 0 && (
             <div style={{ fontSize: 12, color: 'var(--fb-text-4)', padding: '6px 2px' }}>
               今天没有筛选出与持仓强相关的新闻。
             </div>

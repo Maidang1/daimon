@@ -3,7 +3,6 @@
 import type { HotspotTheme, Snapshot } from '../api.js'
 import { HeatBar } from '../charts.js'
 import { C, fmtAge, fmtPct, fmtSigned, pnlColor } from '../format.js'
-
 function ThemeCard({ theme }: { theme: HotspotTheme }): React.ReactElement {
   const bandCls = theme.band === '热' ? 'fb-chip fb-chip-up' : theme.band === '温' ? 'fb-chip fb-chip-warn' : 'fb-chip fb-chip-down'
   return (

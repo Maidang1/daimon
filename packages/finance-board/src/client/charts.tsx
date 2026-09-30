@@ -7,22 +7,33 @@
  * resolve var(), and this file is shared by the old client bundle which never
  * loads terminal.css. Single-point maintenance lives here, values mirror the
  * --fb-* tokens.
+ *
+ * @module @deepseek-ai/dsh-finance-board/client/charts
  */
 
+import { useId } from 'react'
 import { C } from './format.js'
 
 /** Hex palette for SVG attributes (mirrors --fb-* tokens). */
 const CH = {
-  up: '#f25a5a',
-  down: '#22c55e',
-  warn: '#f59e0b',
+  up: C.up,
+  down: C.down,
+  warn: C.warn,
   track: '#ffffff14',
   line: '#ffffff1f',
 }
 
-let gradientSeq = 0
+/** Padding inside a chart's viewBox, so strokes are not clipped. */
+const PAD = 6
 
-function pointsOf(values: number[], width: number, height: number, pad = 2): string {
+/**
+ * Map values onto a polyline `points` string.
+ *
+ * Both `LineChart` and `Sparkline` need this. It used to be written twice,
+ * with different padding constants, so the two charts' geometry had already
+ * drifted apart.
+ */
+function pointsOf(values: number[], width: number, height: number, pad: number): string {
   if (values.length === 0) return ''
   const min = Math.min(...values)
   const max = Math.max(...values)
@@ -41,8 +52,12 @@ export function LineChart({ values, width = '100%', height = 140, ma20 }: {
   /** Optional horizontal reference line (dashed amber), in the same unit as values. */
   ma20?: number
 }): React.ReactElement {
+  // A stable per-instance id: a render-scoped counter produced ids that both
+  // churned on every re-render and grew for the page's lifetime, so
+  // `fill="url(#…)"` never resolved to a stable node.
+  const gid = `fb-area-${useId()}`
   const w = 600
-  const h = height as number
+  const h = height
   if (values.length < 2) {
     return <div style={{ height: h, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.dim, fontSize: 12 }}>
       数据不足
@@ -53,12 +68,11 @@ export function LineChart({ values, width = '100%', height = 140, ma20 }: {
   const min = Math.min(...domain)
   const max = Math.max(...domain)
   const span = max - min || 1
-  const yOf = (v: number): number => h - 6 - ((v - min) / span) * (h - 12)
-  const linePts = values.map((v, i) => `${(6 + i * ((w - 12) / (values.length - 1))).toFixed(1)},${yOf(v).toFixed(1)}`).join(' ')
+  const yOf = (v: number): number => h - PAD - ((v - min) / span) * (h - PAD * 2)
+  const linePts = pointsOf(values, w, h, PAD)
   const last = values[values.length - 1]
-  const rising = values.length > 1 && last >= values[0]
+  const rising = last >= values[0]
   const lineColor = rising ? CH.up : CH.down
-  const gid = `fb-area-${++gradientSeq}`
   return (
     <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width, height: h, display: 'block' }}
       role="img" aria-label="趋势图">
@@ -68,10 +82,10 @@ export function LineChart({ values, width = '100%', height = 140, ma20 }: {
           <stop offset="100%" stopColor={lineColor} stopOpacity={0} />
         </linearGradient>
       </defs>
-      <polygon points={`6,${h} ${linePts} ${w - 6},${h}`} fill={`url(#${gid})`} stroke="none" />
+      <polygon points={`${PAD},${h} ${linePts} ${w - PAD},${h}`} fill={`url(#${gid})`} stroke="none" />
       <polyline points={linePts} fill="none" stroke={lineColor} strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
       {ma20 !== undefined && (
-        <line x1={6} y1={yOf(ma20)} x2={w - 6} y2={yOf(ma20)} stroke={CH.warn}
+        <line x1={PAD} y1={yOf(ma20)} x2={w - PAD} y2={yOf(ma20)} stroke={CH.warn}
           strokeWidth={1} strokeDasharray="5 4" vectorEffect="non-scaling-stroke" />
       )}
     </svg>
@@ -79,8 +93,7 @@ export function LineChart({ values, width = '100%', height = 140, ma20 }: {
 }
 
 /** Horizontal bar row: label on the left, signed bar centered on zero. */
-export function BarRow({ label, value, maxAbs, width = 200 }: {
-  label: string
+export function BarRow({ value, maxAbs, width = 200 }: {
   value: number
   maxAbs: number
   width?: number
@@ -113,17 +126,23 @@ export function Sparkline({ values, width = 72, height = 20 }: {
   )
 }
 
+/** The heat band a percentage falls in — one classifier, shared with the table. */
+export function heatBand(pct: number): 'up' | 'warn' | 'down' {
+  if (pct >= 70) return 'up'
+  if (pct >= 40) return 'warn'
+  return 'down'
+}
+
 /** Mini vertical bars (e.g. per-theme heat). */
 export function HeatBar({ pct, width = 64, height = 8 }: {
   pct: number
   width?: number
   height?: number
 }): React.ReactElement {
-  const color = pct >= 70 ? CH.up : pct >= 40 ? CH.warn : CH.down
   return (
     <svg width={width} height={height} style={{ display: 'inline-block' }} aria-hidden>
       <rect x={0} y={0} width={width} height={height} rx={4} fill={CH.track} />
-      <rect x={0} y={0} width={(Math.min(pct, 100) / 100) * width} height={height} rx={4} fill={color} />
+      <rect x={0} y={0} width={(Math.min(pct, 100) / 100) * width} height={height} rx={4} fill={CH[heatBand(pct)]} />
     </svg>
   )
 }

@@ -4,17 +4,22 @@
  * session/prompt("用 finance.status() 自检") → assistant-stream chunks and
  * tool events. Exercises every wire assumption of src/terminal/dsh/*.
  *
- * Usage: node scripts/e2e-protocol.mjs <cookie-header>
+ * Usage: node scripts/e2e-protocol.mjs <cookie-header> [cwd]
  *   cookie-header: value of the dsh-auth-* cookie (see the token exchange).
+ *   cwd: working directory new sessions get (defaults to this repo).
  */
 import { randomUUID } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
 
-const BASE = 'http://127.0.0.1:3180'
+const BASE = process.env.FINANCE_E2E_BASE ?? 'http://127.0.0.1:3180'
+/** The repo root, relative to this script — never a hardcoded absolute path. */
+const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url))
 const cookie = process.argv[2]
 if (!cookie) {
-  console.error('usage: node scripts/e2e-protocol.mjs <cookie-header>')
+  console.error('usage: node scripts/e2e-protocol.mjs <cookie-header> [cwd]')
   process.exit(2)
 }
+const cwd = process.argv[3] ?? REPO_ROOT
 
 const results = []
 const check = (name, ok, detail = '') => {
@@ -42,7 +47,7 @@ const list = await unary('session/list', { _request: {} })
 check('session/list', Array.isArray(list.items), `${list.items.length} sessions`)
 
 // 2. session/create
-const created = await unary('session/create', { request: { cwd: '/Users/bytedance/codes/open-source/daimon' } })
+const created = await unary('session/create', { request: { cwd } })
 check('session/create', typeof created.sessionId === 'string', created.sessionId)
 const sessionId = created.sessionId
 

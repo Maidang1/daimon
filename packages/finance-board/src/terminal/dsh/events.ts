@@ -12,35 +12,18 @@
  * surface as UI banners; unknown types are answered `{kind:'next'}`
  * (delegate, i.e. fail-open down the answerer chain) without disturbing the
  * user. A `cancel` frame withdraws a pending waterfall.
+ *
+ * The outstanding waterfalls are therefore a *set*, not a slot: parallel tool
+ * calls can raise several approvals at once.
+ *
+ * @module @deepseek-ai/dsh-finance-board/terminal/dsh/events
  */
 
 import { mux } from './mux.js'
 import { call } from './rpc.js'
+import { parseDownlinkFrame, type ApprovalRequest, type UserQuestionsRequest, type WaterfallFrame } from './eventsWire.js'
 
-/** One pending approval banner for the chat drawer. */
-export interface ApprovalRequest {
-  eventId: string
-  toolName: string
-  callId?: string
-  reason?: string
-  displayReason?: string
-}
-
-/** One question inside a user-questions banner. */
-export interface UserQuestion {
-  id: string
-  question: string
-  detail?: string
-  header?: string
-  options?: { label: string; description?: string }[]
-  multiSelect?: boolean
-}
-
-/** One pending user-questions banner for the chat drawer. */
-export interface UserQuestionsRequest {
-  eventId: string
-  questions: UserQuestion[]
-}
+export type { ApprovalRequest, UserQuestionsRequest }
 
 export interface EventsListener {
   /** A session was added or removed on the Host — refresh the list. */
@@ -52,12 +35,6 @@ export interface EventsListener {
   onWithdrawn?: (eventId: string) => void
 }
 
-type DownlinkFrame =
-  | { type: 'ready'; clientId: string }
-  | { type: 'emit'; event: string; args: unknown[] }
-  | { type: 'waterfall'; event: string; eventId: string; request: Record<string, unknown> }
-  | { type: 'cancel'; eventId: string }
-
 const listeners = new Set<EventsListener>()
 
 /** Subscribe to `$events` notifications; returns an unsubscribe fn. */
@@ -67,65 +44,64 @@ export function onEvent(listener: EventsListener): () => void {
 }
 
 let clientId: string | null = null
-/** eventIds the user is currently being asked about (survive reconnects only until the socket drops). */
-const pending = new Set<string>()
 let started = false
 
-/** Answer one waterfall. Unanswered waterfalls park the agent — never drop. */
+/**
+ * Answer one waterfall.
+ *
+ * Unanswered waterfalls park the agent — never drop. So the promise is
+ * returned rather than `void`-ed: the caller keeps its banner and can retry
+ * when the answer fails, instead of dismissing a request the agent is still
+ * blocked on. The old version logged a warning and let the banner close.
+ */
 async function answer(eventId: string, outcome: Record<string, unknown>): Promise<void> {
-  if (!clientId) return
-  try {
-    // The $events/result interceptor reads payload.args verbatim (not the
-    // typert {request} convention).
-    await call('$events/result', { clientId, eventId, outcome } as unknown as Record<string, unknown>)
-  } catch (err) {
-    console.warn('[events] failed to answer', eventId, err)
-  } finally {
-    pending.delete(eventId)
-  }
+  if (!clientId) throw new Error('$events stream is not ready')
+  // The $events/result interceptor reads payload.args verbatim (not the
+  // typert {request} convention).
+  await call('$events/result', { clientId, eventId, outcome } as unknown as Record<string, unknown>)
 }
 
-/** User decision helpers used by the chat drawer banners. */
-export function answerApproval(eventId: string, outcome: 'allowed-once' | 'rejected'): void {
-  void answer(eventId, { kind: 'result', value: outcome })
+/** User decision helpers used by the chat banners. */
+export function answerApproval(eventId: string, outcome: 'allowed-once' | 'rejected'): Promise<void> {
+  return answer(eventId, { kind: 'result', value: outcome })
 }
 
-export function answerQuestions(eventId: string, answers: { id: string; selected: string[]; custom?: string }[]): void {
-  void answer(eventId, { kind: 'result', value: { answers } })
+export function answerQuestions(
+  eventId: string,
+  answers: { id: string; selected: string[]; custom?: string }[],
+): Promise<void> {
+  return answer(eventId, { kind: 'result', value: { answers } })
 }
 
-function handleWaterfall(frame: Extract<DownlinkFrame, { type: 'waterfall' }>): void {
-  pending.add(frame.eventId)
-  const req = frame.request ?? {}
+function handleWaterfall(frame: WaterfallFrame): void {
+  const req = frame.request
   if (frame.event === 'approval/request') {
-    const display = req.displayReason as { zh?: string; en?: string } | undefined
     for (const l of listeners) {
       l.onApproval?.({
         eventId: frame.eventId,
-        toolName: String(req.toolName ?? 'unknown'),
-        callId: req.callId as string | undefined,
-        reason: req.reason as string | undefined,
-        displayReason: display?.zh ?? display?.en,
+        toolName: req.toolName ?? 'unknown',
+        callId: req.callId,
+        reason: req.reason,
+        displayReason: req.displayReason,
       })
     }
     return
   }
   if (frame.event === 'user-questions/request') {
-    const questions = (req.questions ?? []) as UserQuestion[]
     for (const l of listeners) {
-      l.onQuestions?.({ eventId: frame.eventId, questions })
+      l.onQuestions?.({ eventId: frame.eventId, questions: req.questions ?? [] })
     }
     return
   }
   // Unknown waterfall: delegate down the answerer chain instead of parking
   // the agent on a request this UI cannot present.
   console.debug('[events] unanswered waterfall, delegating:', frame.event)
-  void answer(frame.eventId, { kind: 'next' })
+  void answer(frame.eventId, { kind: 'next' }).catch(err => console.warn('[events] delegate failed', frame.eventId, err))
 }
 
 function handleFrame(item: unknown): void {
-  const frame = item as DownlinkFrame
-  if (!frame || typeof frame !== 'object') return
+  const frame = parseDownlinkFrame(item)
+  if (!frame) return
   switch (frame.type) {
     case 'ready':
       clientId = frame.clientId
@@ -141,7 +117,6 @@ function handleFrame(item: unknown): void {
       handleWaterfall(frame)
       return
     case 'cancel':
-      pending.delete(frame.eventId)
       for (const l of listeners) l.onWithdrawn?.(frame.eventId)
       return
   }
@@ -150,7 +125,7 @@ function handleFrame(item: unknown): void {
 /**
  * Start the `$events` stream (idempotent). On a mux reconnect the stream is
  * re-opened by the mux itself; the fresh `ready` frame hands us a new
- * clientId (the Host keys results to the live generation, so answers always
+ * `clientId` (the Host keys results to the live generation, so answers always
  * use the latest one). Waterfalls that were pending across the drop died
  * with their generation; the Host re-delivers still-pending requests on the
  * new generation.

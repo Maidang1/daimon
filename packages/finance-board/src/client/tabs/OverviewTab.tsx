@@ -2,7 +2,7 @@
 
 import type { FundInfo, Snapshot } from '../api.js'
 import { BarRow, LineChart } from '../charts.js'
-import { C, fmtAge, fmtMoney, fmtPct, fmtSigned, pnlColor } from '../format.js'
+import { C, fmtAge, fmtMoney, fmtPct, fmtSigned, navSeriesOf, pnlColor } from '../format.js'
 
 function Kpi({ label, value, valueColor, sub }: {
   label: string
@@ -29,11 +29,9 @@ function FundCard({ fund, onFundClick }: {
   fund: FundInfo
   onFundClick?: (code: string) => void
 }): React.ReactElement {
-  const navSeries = fund.nav_tail
-    ? Object.entries(fund.nav_tail).sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([, v]) => v)
-    : []
+  const navSeries = navSeriesOf(fund)
   const dev = fund.pred_ret
-  const hit = fund.accuracy.hit_rate
+  const hit = fund.accuracy?.hit_rate
   const clickable = onFundClick !== undefined
   return (
     <div
@@ -86,6 +84,9 @@ export function OverviewTab({ snapshot, onFundClick }: {
 }): React.ReactElement {
   const { summary, meta, funds, accuracy, hotspot } = snapshot
   const pending = meta.pending_artifact
+  // Hoisted: the previous version recomputed this per-row inside `.map`, an
+  // O(n²) pass over the same constant on every render.
+  const maxAbs = Math.max(...accuracy.recent.map(r => Math.abs(r.dev ?? 0)), 0.5)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '16px 20px' }}>
@@ -141,20 +142,17 @@ export function OverviewTab({ snapshot, onFundClick }: {
         <section>
           <h3 style={{ fontSize: 13, color: C.dim, margin: '0 0 10px', fontWeight: 600 }}>近期预测核对</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {accuracy.recent.map((r, i) => {
-              const maxAbs = Math.max(...accuracy.recent.map(x => Math.abs(x.dev ?? 0)), 0.5)
-              return (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
-                  <span style={{ color: C.dim, width: 90 }}>{r.navDate}</span>
-                  <span style={{ width: 110, color: C.text }}>{r.code}</span>
-                  <BarRow label="" value={r.dev ?? 0} maxAbs={maxAbs} />
-                  <span className="fb-num" style={{ color: pnlColor(r.dev), width: 70, textAlign: 'right' }}>
-                    {fmtSigned(r.dev)}%
-                  </span>
-                  <span style={{ color: C.dim }}>预测 {fmtPct(r.predRet)} / 实际 {fmtPct(r.actualRet)}</span>
-                </div>
-              )
-            })}
+            {accuracy.recent.map((r, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
+                <span style={{ color: C.dim, width: 90 }}>{r.navDate}</span>
+                <span style={{ width: 110, color: C.text }}>{r.code}</span>
+                <BarRow value={r.dev ?? 0} maxAbs={maxAbs} />
+                <span className="fb-num" style={{ color: pnlColor(r.dev), width: 70, textAlign: 'right' }}>
+                  {fmtSigned(r.dev)}%
+                </span>
+                <span style={{ color: C.dim }}>预测 {fmtPct(r.predRet)} / 实际 {fmtPct(r.actualRet)}</span>
+              </div>
+            ))}
           </div>
         </section>
       )}

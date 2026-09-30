@@ -1,7 +1,19 @@
-/** 侧边栏：品牌区、新对话按钮、最近会话列表、底部导航（看板/热点/官方界面）。 */
+/**
+ * 侧边栏：品牌区、新对话按钮、最近会话列表、底部导航（看板/热点/官方界面）。
+ *
+ * 导航收敛成一个 `onNavigate(view)` 回调：此前是「四种导航风格外加一次裸
+ * store 写入」（onOpenBoard / onOpenHotspots / onOpenHome / onSelectChat），
+ * 每个都是 `setView` 的一桩特例，新增一种入口就要多一个 prop。
+ *
+ * @module @deepseek-ai/dsh-finance-board/terminal/sidebar
+ */
 
-import { useEffect, useSyncExternalStore } from 'react'
+import { useSyncExternalStore } from 'react'
 import { sessions } from './dsh/sessions.js'
+import type { View } from './view.js'
+
+/** The main-area view kinds, derived from the app's view model. */
+export type ViewKind = 'home' | 'chat' | 'board' | 'fund'
 
 function shortId(id: string): string {
   return id.length > 8 ? id.slice(0, 8) : id
@@ -13,36 +25,47 @@ function sessionLabel(id: string, cwd?: string): string {
   return `${base} · ${shortId(id)}`
 }
 
-export function Sidebar({ active, onNewChat, onSelectChat, onOpenBoard, onOpenHotspots, onOpenHome }: {
-  /** 当前主区视图，用于导航高亮。 */
-  active: 'home' | 'chat' | 'board' | 'fund'
-  onNewChat: () => void
-  onSelectChat: (sessionId: string) => void
-  onOpenBoard: () => void
-  onOpenHotspots: () => void
-  onOpenHome: () => void
+/** The nav row, shared by the session list and the bottom navigation. */
+function NavItem({ active, label, dot, external, onClick }: {
+  active: boolean
+  label: string
+  /** Leading slot: a running-session indicator, or nothing. */
+  dot?: boolean
+  external?: boolean
+  onClick: () => void
 }): React.ReactElement {
-  const state = useSyncExternalStore(sessions.subscribe, sessions.getState)
-  useEffect(() => sessions.start(), [])
-
-  const navItem = (label: string, isActive: boolean, onClick: () => void, external = false): React.ReactElement => (
+  return (
     <button
-      key={label}
       onClick={onClick}
+      title={label}
       style={{
-        display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
-        background: isActive ? 'var(--fb-bg-3)' : 'transparent', border: 'none',
-        color: isActive ? 'var(--fb-text-1)' : 'var(--fb-text-3)',
-        padding: '7px 10px', fontSize: 13, borderRadius: 'var(--fb-r-sm)', cursor: 'pointer',
+        display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left',
+        background: active ? 'var(--fb-bg-3)' : 'transparent', border: 'none',
+        color: active ? 'var(--fb-text-1)' : 'var(--fb-text-3)',
+        padding: '7px 10px', fontSize: 12, borderRadius: 'var(--fb-r-sm)', cursor: 'pointer',
         fontFamily: 'var(--fb-font-ui)',
       }}
-      onMouseEnter={ev => { if (!isActive) ev.currentTarget.style.background = 'var(--fb-hover)' }}
-      onMouseLeave={ev => { if (!isActive) ev.currentTarget.style.background = 'transparent' }}
+      onMouseEnter={ev => { if (!active) ev.currentTarget.style.background = 'var(--fb-hover)' }}
+      onMouseLeave={ev => { if (!active) ev.currentTarget.style.background = 'transparent' }}
     >
-      {label}
+      {dot
+        ? <span style={{ color: 'var(--fb-brand)', fontSize: 9, width: 9 }}>●</span>
+        : <span style={{ width: 9, flexShrink: 0 }} />}
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
       {external && <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--fb-text-4)' }}>↗</span>}
     </button>
   )
+}
+
+export function Sidebar({ active, onNavigate, onNewChat, onSelectChat }: {
+  /** 当前主区视图，用于导航高亮。 */
+  active: ViewKind
+  /** 切到某个视图。会话项点击 = 选中该会话并切到对话页。 */
+  onNavigate: (view: View) => void
+  onNewChat: () => void
+  onSelectChat: (sessionId: string) => void
+}): React.ReactElement {
+  const state = useSyncExternalStore(sessions.subscribe, sessions.getState)
 
   return (
     <aside style={{
@@ -51,8 +74,7 @@ export function Sidebar({ active, onNewChat, onSelectChat, onOpenBoard, onOpenHo
     }}>
       {/* 品牌区：点击回首页 */}
       <button
-        onClick={onOpenHome}
-        title="回到首页"
+        onClick={() => onNavigate({ kind: 'home' })}        title="回到首页"
         style={{
           display: 'flex', alignItems: 'center', gap: 10, padding: '16px 16px 12px',
           background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left',
@@ -84,32 +106,15 @@ export function Sidebar({ active, onNewChat, onSelectChat, onOpenBoard, onOpenHo
         {state.sessions.length === 0 && (
           <div style={{ padding: '10px 10px', fontSize: 12, color: 'var(--fb-text-4)' }}>暂无会话</div>
         )}
-        {state.sessions.map(s => {
-          const isActive = s.sessionId === state.activeSessionId && (active === 'chat' || active === 'home')
-          return (
-            <button
-              key={s.sessionId}
-              onClick={() => onSelectChat(s.sessionId)}
-              title={sessionLabel(s.sessionId, s.cwd)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left',
-                background: isActive ? 'var(--fb-bg-3)' : 'transparent', border: 'none',
-                color: isActive ? 'var(--fb-text-1)' : 'var(--fb-text-3)',
-                padding: '7px 10px', fontSize: 12, borderRadius: 'var(--fb-r-sm)', cursor: 'pointer',
-                fontFamily: 'var(--fb-font-ui)',
-              }}
-              onMouseEnter={ev => { if (!isActive) ev.currentTarget.style.background = 'var(--fb-hover)' }}
-              onMouseLeave={ev => { if (!isActive) ev.currentTarget.style.background = 'transparent' }}
-            >
-              {s.running
-                ? <span style={{ color: 'var(--fb-brand)', fontSize: 9 }}>●</span>
-                : <span style={{ width: 9 }} />}
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {sessionLabel(s.sessionId, s.cwd)}
-              </span>
-            </button>
-          )
-        })}
+        {state.sessions.map(s => (
+          <NavItem
+            key={s.sessionId}
+            active={s.sessionId === state.activeSessionId}
+            dot={s.running}
+            label={sessionLabel(s.sessionId, s.cwd)}
+            onClick={() => onSelectChat(s.sessionId)}
+          />
+        ))}
       </div>
 
       {/* 底部导航 */}
@@ -117,9 +122,17 @@ export function Sidebar({ active, onNewChat, onSelectChat, onOpenBoard, onOpenHo
         borderTop: '1px solid var(--fb-line-1)', padding: '8px 8px 12px',
         display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0,
       }}>
-        {navItem('金融看板', active === 'board' || active === 'fund', onOpenBoard)}
-        {navItem('热点资讯', false, onOpenHotspots)}
-        {navItem('官方界面', false, () => window.open('/index.html', '_blank'), true)}
+        <NavItem
+          active={active === 'board' || active === 'fund'}
+          label="金融看板"
+          onClick={() => onNavigate({ kind: 'board', tab: 'overview' })}
+        />
+        <NavItem
+          active={false}
+          label="热点资讯"
+          onClick={() => onNavigate({ kind: 'board', tab: 'hotspots' })}
+        />
+        <NavItem active={false} label="官方界面" external onClick={() => window.open('/index.html', '_blank')} />
       </div>
     </aside>
   )

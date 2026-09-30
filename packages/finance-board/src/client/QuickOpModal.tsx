@@ -3,19 +3,30 @@
  * `finance.add_op` server-side, so UI-recorded ops are identical to
  * in-conversation ones). On a sell-over-position warning the modal flips into
  * a confirm step instead of silently succeeding.
+ *
+ * @module @deepseek-ai/dsh-finance-board/client/QuickOpModal
  */
 
 import { useState } from 'react'
-import { recordOp, type Holding } from './api.js'
+import { describeError, recordOp, type Holding } from './api.js'
 import { C } from './format.js'
+
+/** Parse a positive amount from a text field; `null` means "not a usable number". */
+function parseAmount(raw: string): number | null {
+  const value = Number(raw)
+  return raw.trim() !== '' && Number.isFinite(value) && value > 0 ? value : null
+}
 
 export function QuickOpModal({ holdings, initialCode, onClose, onDone }: {
   holdings: Holding[]
-  initialCode?: string
+  /** The fund to preselect. Required: with no holdings there is nothing to
+   *  record, and the caller disables the button rather than opening a modal
+   *  that cannot be submitted. */
+  initialCode: string
   onClose: () => void
   onDone: (message: string) => void
 }): React.ReactElement {
-  const [code, setCode] = useState(initialCode ?? (holdings[0]?.code ?? ''))
+  const [code, setCode] = useState(initialCode)
   const [side, setSide] = useState<'buy' | 'sell'>('buy')
   const [shares, setShares] = useState('')
   const [price, setPrice] = useState('')
@@ -25,13 +36,19 @@ export function QuickOpModal({ holdings, initialCode, onClose, onDone }: {
   const [error, setError] = useState<string | null>(null)
 
   const submit = async (confirmed: boolean): Promise<void> => {
+    const shareValue = parseAmount(shares)
+    const priceValue = parseAmount(price)
+    if (shareValue === null || priceValue === null) {
+      setError('份额和净值必须是大于 0 的数字')
+      return
+    }
     setBusy(true)
     setError(null)
     try {
       const res = await recordOp({
         code, side,
-        shares: Number(shares),
-        price: Number(price),
+        shares: shareValue,
+        price: priceValue,
         note: note || undefined,
       })
       if (res.warning && !confirmed) {
@@ -40,7 +57,7 @@ export function QuickOpModal({ holdings, initialCode, onClose, onDone }: {
       }
       onDone(`已记录 ${code} ${side === 'buy' ? '买入' : '卖出'} ${shares} 份 @ ${price}`)
     } catch (err) {
-      setError(String(err instanceof Error ? err.message : err))
+      setError(describeError(err))
     } finally {
       setBusy(false)
     }
@@ -125,7 +142,7 @@ export function QuickOpModal({ holdings, initialCode, onClose, onDone }: {
               取消
             </button>
             <button
-              disabled={busy || !code || !shares || !price}
+              disabled={busy || parseAmount(shares) === null || parseAmount(price) === null}
               onClick={() => void submit(warning !== null)}
               style={{
                 flex: 2, padding: '8px 0', borderRadius: 8, cursor: 'pointer', fontSize: 13,

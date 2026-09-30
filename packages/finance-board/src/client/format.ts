@@ -57,3 +57,16 @@ export function fmtAge(seconds: number | null): string {
   if (seconds < 5400) return `${Math.round(seconds / 60)} 分钟前`
   return `${(seconds / 3600).toFixed(1)} 小时前`
 }
+
+/**
+ * The nav series a chart wants.
+ *
+ * `nav_tail` is keyed by date string, so the order is the key order, not the
+ * insertion order. The overview grid and the fund detail page both need this,
+ * and it encodes a data-shape assumption (`sortable date keys`) that must not
+ * be changed in two files.
+ */
+export function navSeriesOf(fund: { nav_tail: Record<string, number> | null } | undefined): number[] {
+  if (!fund?.nav_tail) return []
+  return Object.entries(fund.nav_tail).sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([, v]) => v)
+}

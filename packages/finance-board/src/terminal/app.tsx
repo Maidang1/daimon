@@ -5,47 +5,29 @@
  * reachable at `/index.html`). AI-first layout: a 250px sidebar (brand,
  * new-chat, recent sessions, bottom nav) plus a main area switching between
  * four views — `home` (AI 对话首页，默认落地), `chat` (会话消息流), `board`
- * (金融看板，原 TerminalPanel) and `fund` (基金下钻，携带 fundCode)。
+ * (金融看板，原 TerminalPanel) and `fund` (基金下钻，携带 fundCode）。
  *
- * View state is plain useState persisted to localStorage('fb.view') — no
- * router, keeping the bundle zero-dependency. ⌘/Ctrl+B toggles home ↔ chat.
+ * The view model and its persistence live in `view.ts`; this file is layout
+ * plus wiring. ⌘/Ctrl+B toggles home ↔ chat.
+ *
+ * @module @deepseek-ai/dsh-finance-board/terminal/app
  */
 
 import './terminal.css'
 
 import { useCallback, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { TerminalPanel, type BoardTab } from '../client/TerminalPanel.js'
-import { mux } from './dsh/mux.js'
+import { TerminalPanel } from '../client/TerminalPanel.js'
+import { mux, type ConnectionState } from './dsh/mux.js'
 import { onAuthExpired } from './dsh/rpc.js'
 import { sessions } from './dsh/sessions.js'
 import { Sidebar } from './sidebar.js'
 import { ChatPanel } from './chat/ChatPanel.js'
 import { HomeView } from './home/HomeView.js'
 import { FundView } from './fund/FundView.js'
+import { loadView, saveView, type View } from './view.js'
 
-type View =
-  | { kind: 'home' }
-  | { kind: 'chat' }
-  | { kind: 'board' }
-  | { kind: 'fund'; code: string }
-
-const VIEW_STORAGE_KEY = 'fb.view'
-
-function loadView(): View {
-  try {
-    const raw = localStorage.getItem(VIEW_STORAGE_KEY)
-    if (!raw) return { kind: 'home' }
-    const parsed = JSON.parse(raw) as View
-    if (parsed.kind === 'home' || parsed.kind === 'chat' || parsed.kind === 'board') return parsed
-    if (parsed.kind === 'fund' && typeof parsed.code === 'string' && parsed.code) return parsed
-  } catch {
-    // fall through
-  }
-  return { kind: 'home' }
-}
-
-const STATE_LABEL: Record<string, string> = {
+const STATE_LABEL: Record<ConnectionState, string> = {
   open: '已连接',
   connecting: '连接中',
   closed: '已断开',
@@ -55,37 +37,38 @@ function App(): React.ReactElement {
   const [connState, setConnState] = useState(mux.state)
   const [authExpired, setAuthExpired] = useState(false)
   const [view, setViewState] = useState<View>(loadView)
-  const [boardTab, setBoardTab] = useState<BoardTab>('overview')
 
-  const setView = useCallback((v: View): void => {
-    setViewState(v)
-    try {
-      localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify(v))
-    } catch {
-      // 隐私模式下持久化失败不影响使用
-    }
+  /**
+   * The one writer of view state. Accepts an updater so the ⌘/Ctrl+B handler
+   * toggles from current state instead of re-implementing the persistence.
+   */
+  const setView = useCallback((next: View | ((cur: View) => View)): void => {
+    setViewState(cur => {
+      const value = typeof next === 'function' ? next(cur) : next
+      saveView(value)
+      return value
+    })
   }, [])
 
   useEffect(() => mux.onStateChange(setConnState), [])
   useEffect(() => onAuthExpired(() => setAuthExpired(true)), [])
-  useEffect(() => sessions.start(), [])
 
-  /** 发送一条 prompt：无活动会话时先建会话，随后切到对话页。 */
+  /**
+   * 发送一条 prompt：保证有活动会话后发出，随后切到对话页。
+   *
+   * The session-creation-then-prompt policy lives in the store, so home
+   * suggestions, fund follow-ups and the chat composer share one path instead
+   * of three that drifted. Navigation is immediate — the RPCs are not awaited
+   * on the render path.
+   */
   const sendPrompt = useCallback((text: string): void => {
-    void (async () => {
-      if (!sessions.getState().activeSessionId) await sessions.createSession()
-      await sessions.sendPrompt(text)
-      setView({ kind: 'chat' })
-    })()
+    void sessions.ask(text)
+    setView({ kind: 'chat' })
   }, [setView])
 
   const newChat = useCallback((): void => {
-    void sessions.createSession().then(() => setView({ kind: 'chat' }))
-  }, [setView])
-
-  const openBoard = useCallback((tab?: BoardTab): void => {
-    if (tab) setBoardTab(tab)
-    setView({ kind: 'board' })
+    void sessions.newSession()
+    setView({ kind: 'chat' })
   }, [setView])
 
   // 快捷键：Cmd/Ctrl + B 在首页 ↔ 对话页之间切换。
@@ -93,30 +76,23 @@ function App(): React.ReactElement {
     const onKey = (ev: KeyboardEvent): void => {
       if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'b') {
         ev.preventDefault()
-        setViewState(cur => {
-          const next: View = cur.kind === 'chat' ? { kind: 'home' } : { kind: 'chat' }
-          try {
-            localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify(next))
-          } catch {
-            // ignore
-          }
-          return next
-        })
+        setView(cur => (cur.kind === 'chat' ? { kind: 'home' } : { kind: 'chat' }))
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [setView])
 
   return (
     <div style={{ display: 'flex', height: '100%', background: 'var(--fb-bg-0)', color: 'var(--fb-text-1)' }}>
       <Sidebar
         active={view.kind}
+        onNavigate={setView}
         onNewChat={newChat}
-        onSelectChat={id => { sessions.selectSession(id); setView({ kind: 'chat' }) }}
-        onOpenBoard={() => openBoard()}
-        onOpenHotspots={() => openBoard('hotspots')}
-        onOpenHome={() => setView({ kind: 'home' })}
+        onSelectChat={id => {
+          sessions.selectSession(id)
+          setView({ kind: 'chat' })
+        }}
       />
 
       <main style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -127,7 +103,7 @@ function App(): React.ReactElement {
         }}>
           <span className="fb-pill">
             <span className={`fb-conn-dot ${connState}`} />
-            {STATE_LABEL[connState] ?? connState}
+            {STATE_LABEL[connState]}
           </span>
         </div>
 
@@ -148,9 +124,9 @@ function App(): React.ReactElement {
         {view.kind === 'board' && (
           <div style={{ flex: 1, minHeight: 0 }}>
             <TerminalPanel
-              tab={boardTab}
-              onTabChange={setBoardTab}
-              onFundClick={code => setView({ kind: 'fund', code })}
+              tab={view.tab}
+              onTabChange={tab => setView({ kind: 'board', tab })}
+              onFundClick={code => setView({ kind: 'fund', code, from: view.tab })}
             />
           </div>
         )}
@@ -158,7 +134,7 @@ function App(): React.ReactElement {
         {view.kind === 'fund' && (
           <FundView
             code={view.code}
-            onBack={() => setView({ kind: 'board' })}
+            onBack={() => setView({ kind: 'board', tab: view.from })}
             onSend={sendPrompt}
           />
         )}
@@ -167,6 +143,11 @@ function App(): React.ReactElement {
   )
 }
 
+// The session store's lifetime is the page's, so its entry point is wired here
+// once rather than from whichever component happens to mount first. It runs
+// after the first render: the chat needs it, but the shell must not wait on a
+// socket that may not connect.
 const container = document.getElementById('root')
 if (!container) throw new Error('#root missing from index.html')
 createRoot(container).render(<App />)
+sessions.start()

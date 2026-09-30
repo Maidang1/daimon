@@ -7,5 +7,7 @@
     - id: finance-board
       name: '@deepseek-ai/dsh-finance-board'
       inject: [webServer, connection]
-      # config 全部走代码默认值（financeHome/pythonBin/skillsPath 均相对本仓库推导，
-      # profile 级 patch 只覆盖 financeHome 指向 daimon 的 FINANCE_HOME）。
+      # config 全部走代码默认值：financeHome 相对本仓库推导（<repo>/dsh-home/finance，
+      # 即 DSH_HOME 指向的目录），skillsPath / terminalDist 同样是相对本包的路径；
+      # pythonBin 默认按 $PATH 找 python3。profile 级 patch 只在需要时覆盖——
+      # 用哪个解释器是每台机器自己的事实，不属于仓库默认值。

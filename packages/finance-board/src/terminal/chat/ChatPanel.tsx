@@ -6,17 +6,39 @@
  *
  * State comes from dsh/sessions.ts (wire protocol) and dsh/events.ts
  * (waterfall banners); this component owns only local UI state.
+ *
+ * @module @deepseek-ai/dsh-finance-board/terminal/chat/ChatPanel
  */
 
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import {
+  onEvent,
+  answerApproval,
+  answerQuestions,
+  type ApprovalRequest,
+  type UserQuestionsRequest,
+} from '../dsh/events.js'
 import { C } from '../../client/format.js'
-import { onEvent, answerApproval, answerQuestions, type ApprovalRequest, type UserQuestionsRequest } from '../dsh/events.js'
+import { useFinance } from '../../client/financeStore.js'
+import { Composer } from '../ui/Composer.js'
 import { sessions } from '../dsh/sessions.js'
 import { MessageList } from './MessageList.js'
+
+/** One outstanding request the agent is blocked on. */
+type PendingRequest =
+  | { kind: 'approval'; req: ApprovalRequest }
+  | { kind: 'questions'; req: UserQuestionsRequest }
 
 /* ---------- banners ---------- */
 
 function ApprovalBanner({ req, onDone }: { req: ApprovalRequest; onDone: () => void }): React.ReactElement {
+  const answer = (outcome: 'allowed-once' | 'rejected'): void => {
+    // Only dismiss once the Host accepted the answer: an unanswered waterfall
+    // parks the agent, so closing on a *failed* answer is the worst outcome.
+    void answerApproval(req.eventId, outcome).then(onDone, err => {
+      console.warn('[chat] approval answer failed', err)
+    })
+  }
   return (
     <div className="fb-approval" style={{ margin: '8px 0' }}>
       <div style={{ marginBottom: 6 }}>
@@ -26,10 +48,10 @@ function ApprovalBanner({ req, onDone }: { req: ApprovalRequest; onDone: () => v
         <div style={{ color: 'var(--fb-text-3)', marginBottom: 8, whiteSpace: 'pre-wrap' }}>{req.displayReason ?? req.reason}</div>
       )}
       <div style={{ display: 'flex', gap: 8 }}>
-        <button className="fb-btn fb-btn-primary" onClick={() => { answerApproval(req.eventId, 'allowed-once'); onDone() }}>
+        <button className="fb-btn fb-btn-primary" onClick={() => answer('allowed-once')}>
           同意
         </button>
-        <button className="fb-btn fb-btn-danger" onClick={() => { answerApproval(req.eventId, 'rejected'); onDone() }}>
+        <button className="fb-btn fb-btn-danger" onClick={() => answer('rejected')}>
           拒绝
         </button>
       </div>
@@ -42,12 +64,11 @@ function QuestionsBanner({ req, onDone }: { req: UserQuestionsRequest; onDone: (
   const [texts, setTexts] = useState<Record<string, string>>({})
   const [selected, setSelected] = useState<Record<string, string[]>>({})
   const submit = (): void => {
-    answerQuestions(req.eventId, req.questions.map(q => ({
+    void answerQuestions(req.eventId, req.questions.map(q => ({
       id: q.id,
       selected: selected[q.id] ?? [],
       custom: texts[q.id]?.trim() || undefined,
-    })))
-    onDone()
+    }))).then(onDone, err => console.warn('[chat] questions answer failed', err))
   }
   const toggle = (qid: string, label: string, multi?: boolean): void => {
     setSelected(prev => {
@@ -100,83 +121,25 @@ function QuestionsBanner({ req, onDone }: { req: UserQuestionsRequest; onDone: (
   )
 }
 
-/* ---------- composer（供 chat 页与追问 dock 复用） ---------- */
-
-export function Composer({ placeholder, disabled, running, onSend, autoFocus }: {
-  placeholder: string
-  disabled?: boolean
-  running?: boolean
-  onSend: (text: string) => void
-  autoFocus?: boolean
-}): React.ReactElement {
-  const [draft, setDraft] = useState('')
-  const inputRef = useRef<HTMLTextAreaElement>(null)
-
-  useEffect(() => {
-    if (autoFocus) inputRef.current?.focus()
-  }, [autoFocus])
-
-  const send = (): void => {
-    const text = draft.trim()
-    if (!text) return
-    setDraft('')
-    onSend(text)
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div className="fb-composer">
-        <textarea
-          ref={inputRef}
-          value={draft}
-          onChange={ev => setDraft(ev.target.value)}
-          onKeyDown={ev => {
-            if (ev.key === 'Enter' && !ev.shiftKey && !ev.nativeEvent.isComposing) {
-              ev.preventDefault()
-              send()
-            }
-          }}
-          placeholder={placeholder}
-          disabled={disabled}
-          rows={2}
-        />
-        <button
-          className="fb-send"
-          title="发送（Enter）"
-          disabled={!draft.trim() || disabled}
-          onClick={send}
-        >
-          ↑
-        </button>
-      </div>
-      {running && (
-        <div style={{ display: 'flex', justifyContent: 'center' }}>
-          <button className="fb-btn fb-btn-ghost" onClick={() => void sessions.cancelActive()}>
-            ■ 停止生成
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
-
 /* ---------- the panel ---------- */
 
 export function ChatPanel(): React.ReactElement {
   const state = useSyncExternalStore(sessions.subscribe, sessions.getState)
-  const [approval, setApproval] = useState<ApprovalRequest | null>(null)
-  const [questions, setQuestions] = useState<UserQuestionsRequest | null>(null)
-
-  useEffect(() => sessions.start(), [])
+  // A *stack*, not two slots: parallel tool calls can raise several approvals
+  // at once, and overwriting the first slot parked that agent turn forever.
+  const [pending, setPending] = useState<PendingRequest[]>([])
+  // The data layer starts on first subscribe; no view has to remember to.
+  useFinance()
 
   useEffect(() => onEvent({
-    onApproval: req => setApproval(req),
-    onQuestions: req => setQuestions(req),
-    onWithdrawn: eventId => {
-      setApproval(cur => (cur?.eventId === eventId ? null : cur))
-      setQuestions(cur => (cur?.eventId === eventId ? null : cur))
-    },
+    onApproval: req => setPending(cur => [...cur, { kind: 'approval', req }]),
+    onQuestions: req => setPending(cur => [...cur, { kind: 'questions', req }]),
+    onWithdrawn: eventId => setPending(cur => cur.filter(p => p.req.eventId !== eventId)),
   }), [])
+
+  const dismiss = useCallback((eventId: string): void => {
+    setPending(cur => cur.filter(p => p.req.eventId !== eventId))
+  }, [])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
@@ -200,8 +163,9 @@ export function ChatPanel(): React.ReactElement {
         <div className="fb-banner error" style={{ marginBottom: 8, flexShrink: 0 }}>{state.error}</div>
       )}
 
-      {approval && <ApprovalBanner req={approval} onDone={() => setApproval(null)} />}
-      {questions && <QuestionsBanner req={questions} onDone={() => setQuestions(null)} />}
+      {pending.map(item => item.kind === 'approval'
+        ? <ApprovalBanner key={item.req.eventId} req={item.req} onDone={() => dismiss(item.req.eventId)} />
+        : <QuestionsBanner key={item.req.eventId} req={item.req} onDone={() => dismiss(item.req.eventId)} />)}
 
       {state.loading
         ? (
@@ -215,8 +179,8 @@ export function ChatPanel(): React.ReactElement {
         <Composer
           placeholder={state.activeSessionId ? '向 daimon 提问…（Enter 发送，Shift+Enter 换行）' : '先在左侧选择或新建一个会话'}
           disabled={!state.activeSessionId}
-          running={state.running}
-          onSend={text => void sessions.sendPrompt(text)}
+          onSend={text => void sessions.ask(text)}
+          onStop={state.running ? () => void sessions.cancelActive() : undefined}
         />
       </div>
     </div>

@@ -263,11 +263,12 @@
     maxOutputChars: 65536
     startupTimeoutMs: 30000
     shutdownGraceMs: 3000
-# --- finance 终端: 指向 daimon 自有 FINANCE_HOME; pythonBin 与 rlm-kernel-python 一致 ---
+# --- finance 终端: 只需覆盖解释器（financeHome 默认即 <repo>/dsh-home/finance）---
 - id: finance-board
   name: '@deepseek-ai/dsh-finance-board'
   config:
-    financeHome: /Users/bytedance/codes/open-source/daimon/dsh-home/finance
+    # 带 pandas/numpy/scipy 的解释器，与 rlm-kernel-python 配的是同一个。
+    # 这是本机事实，故放在 profile；包默认值按 $PATH 找 python3。
     pythonBin: /Users/bytedance/miniconda/bin/python3
 - id: ui-settings-general
   name: "@deepseek-ai/dsh-client-ui-settings-general"

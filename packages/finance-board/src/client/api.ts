@@ -160,21 +160,34 @@ export interface Snapshot {
   funds: FundInfo[]
   accuracy: AccuracyBlock
   hotspot: HotspotBlock
+  /** Sector look-through. Emitted by `ui_snapshot(include_lookthrough=True)` and
+   *  mirrored here so the type matches the file; no view renders it yet. */
   lookthrough: Record<string, unknown> | null
 }
 
 export interface BoardStatus {
   dashboard: { exists: boolean; mtime: string | null }
   snapshot: { exists: boolean; mtime: string | null }
+  briefing: { exists: boolean; mtime: string | null }
   jobs: JobRecord[]
 }
 
 export interface JobRecord {
   id: string
-  action: string
+  action: JobAction
   status: 'running' | 'success' | 'error'
+  /** When the record last changed (ISO); the UI announces completions on it. */
+  updatedAt: string
   error?: string
-  result?: unknown
+  result?: JobResult
+}
+
+/** Fields of a job result the UI is allowed to read. */
+export interface JobResult {
+  /** Number of funds the pipeline fitted. */
+  funds?: number
+  /** One-line summary the job wrote for the artifact header. */
+  summary?: string
 }
 
 export interface OpsResponse {
@@ -184,7 +197,17 @@ export interface OpsResponse {
   error?: string
 }
 
-export type JobAction = 'daily_job' | 'refresh_dashboard' | 'deep_snapshot' | 'daily_briefing'
+/**
+ * The job actions, in one place.
+ *
+ * The host owns the authoritative registry (`python-actions.ts`), and this
+ * bundle cannot import it — so the type and the runtime list are derived from
+ * a single declaration here, and `tests/api.spec.ts` asserts the two lists
+ * still match. Splitting the type from the list is how they drift.
+ */
+export const JOB_ACTIONS = ['daily_job', 'refresh_dashboard', 'deep_snapshot', 'daily_briefing'] as const
+
+export type JobAction = (typeof JOB_ACTIONS)[number]
 
 /* ---------- 每日简报（agent 生成，briefing.json） ---------- */
 
@@ -211,40 +234,121 @@ export interface Briefing {
   suggestions?: string[]
 }
 
-/** 404 → null（简报未生成，前端降级）。 */
-export async function fetchBriefing(): Promise<Briefing | null> {
-  const res = await fetch(`/finance/api/briefing?_=${Date.now()}`)
-  if (res.status === 404) return null
-  if (!res.ok) throw new Error(`/finance/api/briefing → ${res.status}`)
-  return (await res.json()) as Briefing
+/**
+ * Finance 终端 data types and fetch wrappers.
+ *
+ * The document shapes mirror `py/skills/finance/contracts.py` — that module
+ * is the single source of truth for the keys the Python side writes, and this
+ * file declares the fields the UI reads. `parseSnapshot` / `parseBriefing`
+ * check the invariants the UI depends on at the boundary, so a half-shaped
+ * document fails here rather than as `undefined` three components away.
+ */
+
+/** A failure that carries the HTTP status that produced it.
+ *
+ * The host answers 409 when an action is already running. The UI used to
+ * recover that intent by substring-matching the server's English error
+ * prose, so a rewording silently turned "keep polling, it's fine" into
+ * "show an error and stop". The status is the structured signal; it is no
+ * longer discarded before the caller can see it.
+ */
+export class ApiError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message)
+    this.name = 'ApiError'
+  }
 }
 
-async function getJson<T>(url: string): Promise<T> {
+/** True when a job start was refused because that action is already running. */
+export function isJobConflict(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.status === 409
+}
+
+/**
+ * The four states of a fetched document.
+ *
+ * These used to collapse into `T | null`, which made a transient network
+ * failure indistinguishable from "the artifact does not exist" — so a failed
+ * fetch rendered the "not generated yet" call-to-action and offered a button
+ * that would fail again.
+ */
+export type Resource<T> =
+  | { kind: 'loading' }
+  | { kind: 'ready'; value: T }
+  | { kind: 'missing' }
+  | { kind: 'failed'; error: string }
+
+/** One error stringifier for every catch block in the SPA. */
+export function describeError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
+/** How `getJson` treats a 404. */
+type OnNotFound = 'null' | 'throw'
+
+/** GET one JSON document; the single transport for every read in this package. */
+async function getJson<T>(url: string, onNotFound: OnNotFound): Promise<T | null> {
   const res = await fetch(url)
-  if (!res.ok) throw new Error(`${url} → ${res.status}`)
+  if (res.status === 404) {
+    if (onNotFound === 'null') return null
+    throw new ApiError(404, `${url} is missing`)
+  }
+  if (!res.ok) throw new ApiError(res.status, `${url} → ${res.status}`)
   return (await res.json()) as T
 }
 
+/** Check the arrays the UI iterates unguarded, and fail loudly otherwise. */
+function parseSnapshot(value: unknown): Snapshot {
+  const doc = value as Snapshot | null
+  if (!doc || !Array.isArray(doc.funds) || !Array.isArray(doc.holdings) || !Array.isArray(doc.ops)) {
+    throw new ApiError(200, 'ui_snapshot.json is not the expected shape')
+  }
+  return doc
+}
+
+function parseBriefing(value: unknown): Briefing {
+  const doc = value as Briefing | null
+  if (!doc || !Array.isArray(doc.indices) || !Array.isArray(doc.news)) {
+    throw new ApiError(200, 'briefing.json is not the expected shape')
+  }
+  return doc
+}
+
+/**
+ * The daily briefing. A 404 means the agent has not generated today's
+ * briefing yet — the home view degrades to a "generate it" call-to-action —
+ * while a transient failure throws. Callers must not conflate the two.
+ */
+export async function fetchBriefing(): Promise<Briefing | null> {
+  const doc = await getJson<Briefing>(`/finance/api/briefing?_=${Date.now()}`, 'null')
+  return doc === null ? null : parseBriefing(doc)
+}
+
+/**
+ * The board snapshot. A 404 means it has never been generated (a fresh
+ * install before the first `run_daily_job`); a transient failure throws.
+ */
 export async function fetchSnapshot(): Promise<Snapshot | null> {
-  const res = await fetch(`/finance/api/snapshot?_=${Date.now()}`)
-  if (res.status === 404) return null
-  if (!res.ok) throw new Error(`/finance/api/snapshot → ${res.status}`)
-  return (await res.json()) as Snapshot
+  const doc = await getJson<Snapshot>(`/finance/api/snapshot?_=${Date.now()}`, 'null')
+  return doc === null ? null : parseSnapshot(doc)
 }
 
 export async function fetchStatus(): Promise<BoardStatus> {
-  return getJson(`/finance/api/status?_=${Date.now()}`)
+  const status = await getJson<BoardStatus>(`/finance/api/status?_=${Date.now()}`, 'throw')
+  // `throw` above makes this unreachable in practice; the type still has to
+  // be narrowed because the transport returns `T | null`.
+  return status as BoardStatus
 }
 
-export async function startJob(action: JobAction): Promise<{ job: JobRecord }> {
+export async function startJob(action: JobAction): Promise<JobRecord> {
   const res = await fetch('/finance/api/jobs', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ action }),
   })
   const body = (await res.json()) as { job: JobRecord } & { error?: string }
-  if (!res.ok) throw new Error(body.error ?? `${res.status}`)
-  return body
+  if (!res.ok) throw new ApiError(res.status, body.error ?? `${res.status}`)
+  return body.job
 }
 
 export async function recordOp(input: {
@@ -261,6 +365,6 @@ export async function recordOp(input: {
     body: JSON.stringify(input),
   })
   const body = (await res.json()) as OpsResponse
-  if (!res.ok) throw new Error(body.error ?? `${res.status}`)
+  if (!res.ok) throw new ApiError(res.status, body.error ?? `${res.status}`)
   return body
 }

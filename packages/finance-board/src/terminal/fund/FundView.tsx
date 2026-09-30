@@ -1,19 +1,18 @@
 /**
- * 基金详情·下钻页：从 ui_snapshot + holdings 前端过滤出单只基金的完整视图
- * （持仓 KPI / 净值走势 / 预测与信号 / RBSA 跟踪篮子 / 相关新闻），底部常驻
- * 「追问 dock」——输入发送时自动携带基金上下文前缀，下钻分析沉淀在当前会话里。
+ * 基金详情·下钻页：单只基金的完整视图（持仓 KPI / 净值走势 / 预测与信号 /
+ * RBSA 跟踪篮子 / 相关新闻），底部常驻「追问 dock」——输入发送时自动携带
+ * 基金上下文，下钻分析沉淀在当前会话里。
+ *
+ * 数据与派生在 `useFundDetail.ts`，本文件只做呈现。
+ *
+ * @module @deepseek-ai/dsh-finance-board/terminal/fund/FundView
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  fetchBriefing, fetchSnapshot, fetchStatus,
-  type Briefing, type FundInfo, type Holding, type Snapshot,
-} from '../../client/api.js'
 import { LineChart } from '../../client/charts.js'
 import { C, fmtMoney, fmtPct, fmtSigned, pnlColor } from '../../client/format.js'
-import { Composer } from '../chat/ChatPanel.js'
-
-const RANGES = ['1月', '3月', '6月', '1年'] as const
+import { Composer } from '../ui/Composer.js'
+import { ImpactChip } from '../home/HomeView.js'
+import { useFundDetail } from './useFundDetail.js'
 
 function Kpi({ label, value, valueColor, sub, accent }: {
   label: string
@@ -33,7 +32,9 @@ function Kpi({ label, value, valueColor, sub, accent }: {
 
 function WeightBar({ name, pct, maxPct }: { name: string; pct: number; maxPct: number }): React.ReactElement {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, padding: '3px 0' }}>
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, padding: '3px 0',
+    }}>
       <span style={{ width: 110, color: 'var(--fb-text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {name}
       </span>
@@ -48,54 +49,29 @@ function WeightBar({ name, pct, maxPct }: { name: string; pct: number; maxPct: n
   )
 }
 
+/** 追问 dock 的基金专属建议。 */
+const FOLLOW_UPS = ['为什么最近跑输/跑赢基准？', '继续定投还是止损？', '现在加仓合适吗？']
+
 export function FundView({ code, onBack, onSend }: {
   code: string
   onBack: () => void
   /** 发送一条 prompt（上层负责确保会话存在并切到对话页）。 */
   onSend: (text: string) => void
 }): React.ReactElement {
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
-  const [briefing, setBriefing] = useState<Briefing | null>(null)
-  const [range, setRange] = useState<(typeof RANGES)[number]>('1月')
-  const snapshotMtime = useRef<string | null>(null)
+  const { snapshot, fund, holding, name, navSeries, relatedNews } = useFundDetail(code)
 
-  const load = useCallback(async (): Promise<void> => {
-    try {
-      setSnapshot(await fetchSnapshot())
-    } catch {
-      // 读取失败保留当前帧
-    }
-  }, [])
-
-  useEffect(() => {
-    void load()
-    void fetchBriefing().then(setBriefing).catch(() => {})
-    const timer = setInterval(() => {
-      void fetchStatus().then(status => {
-        if (status.snapshot.mtime !== snapshotMtime.current) {
-          snapshotMtime.current = status.snapshot.mtime
-          void load()
-        }
-      }).catch(() => {})
-    }, 5_000)
-    return () => clearInterval(timer)
-  }, [load])
-
-  const fund: FundInfo | undefined = snapshot?.funds.find(f => f.code === code)
-  const holding: Holding | undefined = snapshot?.holdings.find(h => h.code === code)
-  const name = fund?.name ?? holding?.name ?? code
-
-  const navSeries = fund?.nav_tail
-    ? Object.entries(fund.nav_tail).sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([, v]) => v)
-    : []
-  // 区间切换：snapshot 目前只有单一窗口（约 1 个月 nav_tail），其余区间先禁用。
-  const rangeEnabled = (r: (typeof RANGES)[number]): boolean => r === '1月'
-
-  const relatedNews = (briefing?.news ?? []).filter(n =>
-    (n.funds ?? []).some(f => f === name || f === code || name.includes(f) || f.includes(name)),
-  )
-
+  /** 追问：prompt 自动携带基金上下文。 */
   const ask = (text: string): void => onSend(`关于 ${name}(${code})：${text}`)
+
+  if (snapshot.kind === 'loading') {
+    return (
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.dim, fontSize: 12 }}>
+        载入基金…
+      </div>
+    )
+  }
+
+  const maxWeight = fund?.weights?.length ? Math.max(...fund.weights.map(w => w.pct)) : 1
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
@@ -109,8 +85,11 @@ export function FundView({ code, onBack, onSend }: {
             ← 返回金融看板
           </button>
 
-          {!fund && !holding && snapshot && (
+          {!fund && !holding && snapshot.kind === 'ready' && (
             <div className="fb-banner warn">未在当前快照中找到基金 {code}，可能已清仓或数据未刷新。</div>
+          )}
+          {snapshot.kind === 'missing' && (
+            <div className="fb-banner warn">看板尚未生成——先在 daimon 会话里跑一次 <code>run_daily_job()</code>。</div>
           )}
 
           {/* 基金头部 */}
@@ -164,19 +143,13 @@ export function FundView({ code, onBack, onSend }: {
                 MA20 {fund?.signals ? fmtMoney(fund.signals.ma20, 4) : ''}
               </span>
               <span style={{ flex: 1 }} />
+              {/* 区间切换：snapshot 目前只带单一窗口（约 1 个月 nav_tail）。长窗口
+                  的数据通路落地后，再把这里换成受控的区间状态。 */}
               <span className="fb-seg">
-                {RANGES.map(r => (
-                  <button
-                    key={r}
-                    className={`fb-seg-item${range === r ? ' active' : ''}`}
-                    disabled={!rangeEnabled(r)}
-                    title={rangeEnabled(r) ? undefined : '更长区间的数据通路后补'}
-                    style={rangeEnabled(r) ? undefined : { opacity: 0.4, cursor: 'not-allowed' }}
-                    onClick={() => setRange(r)}
-                  >
-                    {r}
-                  </button>
-                ))}
+                <span className="fb-seg-item active">1月</span>
+                <span className="fb-seg-item" style={{ opacity: 0.4 }} title="更长区间的数据通路后补">3月</span>
+                <span className="fb-seg-item" style={{ opacity: 0.4 }} title="更长区间的数据通路后补">6月</span>
+                <span className="fb-seg-item" style={{ opacity: 0.4 }} title="更长区间的数据通路后补">1年</span>
               </span>
             </div>
             <LineChart values={navSeries} height={170} ma20={fund?.signals?.ma20 ?? undefined} />
@@ -200,7 +173,7 @@ export function FundView({ code, onBack, onSend }: {
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: 'var(--fb-text-3)' }}>预测命中率</span>
                   <b className="fb-num">
-                    {fund?.accuracy.hit_rate != null ? `${fund.accuracy.hit_rate}%（${fund.accuracy.n} 次）` : '—'}
+                    {fund?.accuracy?.hit_rate != null ? `${fund.accuracy.hit_rate}%（${fund.accuracy.n} 次）` : '—'}
                   </b>
                 </div>
               </div>
@@ -220,8 +193,7 @@ export function FundView({ code, onBack, onSend }: {
               {fund?.weights && fund.weights.length > 0 ? (
                 <div style={{ marginTop: 10 }}>
                   {fund.weights.map(w => (
-                    <WeightBar key={w.name} name={w.name} pct={w.pct}
-                      maxPct={Math.max(...(fund.weights ?? []).map(x => x.pct))} />
+                    <WeightBar key={w.name} name={w.name} pct={w.pct} maxPct={maxWeight} />
                   ))}
                   <div style={{ fontSize: 11, color: 'var(--fb-text-4)', marginTop: 8, lineHeight: 1.6 }}>
                     约束回归（45 交易日滚动）拟合出的风格因子权重，盘中估算与净值预测都基于它。
@@ -250,17 +222,13 @@ export function FundView({ code, onBack, onSend }: {
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {relatedNews.map(n => (
-                  <button key={n.title} className="fb-card hoverable" onClick={() => onSend(n.prompt)}
+                  <button key={n.title} className="fb-card hoverable" onClick={() => ask(n.prompt)}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', textAlign: 'left',
                       cursor: 'pointer', fontFamily: 'var(--fb-font-ui)', color: 'var(--fb-text-1)',
                     }}>
                     <span style={{ flex: 1, minWidth: 0, fontSize: 12, lineHeight: 1.6 }}>{n.title}</span>
-                    {n.impact && (
-                      <span className={n.impact === 'bullish' ? 'fb-chip fb-chip-up' : n.impact === 'bearish' ? 'fb-chip fb-chip-down' : 'fb-chip fb-chip-warn'}>
-                        {n.impact === 'bullish' ? '偏利好' : n.impact === 'bearish' ? '偏利空' : '关注'}
-                      </span>
-                    )}
+                    {n.impact && <ImpactChip impact={n.impact} />}
                   </button>
                 ))}
               </div>
@@ -276,7 +244,7 @@ export function FundView({ code, onBack, onSend }: {
       }}>
         <div style={{ maxWidth: 900, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {['为什么最近跑输/跑赢基准？', '继续定投还是止损？', '现在加仓合适吗？'].map(s => (
+            {FOLLOW_UPS.map(s => (
               <button key={s} className="fb-suggest" onClick={() => ask(s)}>{s}</button>
             ))}
           </div>

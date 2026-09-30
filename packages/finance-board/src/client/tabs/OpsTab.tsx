@@ -2,6 +2,7 @@
 
 import type { Snapshot } from '../api.js'
 import { C, fmtMoney } from '../format.js'
+import { tableStyle, thStyle, tdStyle } from '../table.js'
 
 export function OpsTab({ snapshot }: { snapshot: Snapshot }): React.ReactElement {
   const ops = [...snapshot.ops].reverse()
@@ -12,26 +13,18 @@ export function OpsTab({ snapshot }: { snapshot: Snapshot }): React.ReactElement
       </div>
     )
   }
-  const th: React.CSSProperties = {
-    textAlign: 'right', padding: '8px 10px', fontSize: 11, color: C.faint, fontWeight: 500,
-    borderBottom: `1px solid ${C.line2}`,
-  }
-  const td: React.CSSProperties = {
-    textAlign: 'right', padding: '8px 10px', fontSize: 12, color: C.text,
-    borderBottom: `1px solid ${C.line}`, whiteSpace: 'nowrap',
-  }
   return (
     <div style={{ padding: '16px 20px', overflowX: 'auto' }}>
-      <table className="fb-table" style={{ borderCollapse: 'collapse', width: '100%' }}>
+      <table style={tableStyle}>
         <thead>
           <tr>
-            <th style={{ ...th, textAlign: 'left' }}>日期</th>
-            <th style={{ ...th, textAlign: 'left' }}>基金</th>
-            <th style={th}>方向</th>
-            <th style={th}>份额</th>
-            <th style={th}>净值</th>
-            <th style={th}>金额</th>
-            <th style={{ ...th, textAlign: 'left' }}>备注</th>
+            <th style={{ ...thStyle, textAlign: 'left' }}>日期</th>
+            <th style={{ ...thStyle, textAlign: 'left' }}>基金</th>
+            <th style={thStyle}>方向</th>
+            <th style={thStyle}>份额</th>
+            <th style={thStyle}>净值</th>
+            <th style={thStyle}>金额</th>
+            <th style={{ ...thStyle, textAlign: 'left' }}>备注</th>
           </tr>
         </thead>
         <tbody>
@@ -39,18 +32,18 @@ export function OpsTab({ snapshot }: { snapshot: Snapshot }): React.ReactElement
             const fund = snapshot.funds.find(f => f.code === op.code)
             return (
               <tr key={op.index}>
-                <td style={{ ...td, textAlign: 'left', color: C.dim }}>{op.date}</td>
-                <td style={{ ...td, textAlign: 'left' }}>
+                <td style={{ ...tdStyle, textAlign: 'left', color: C.dim }}>{op.date}</td>
+                <td style={{ ...tdStyle, textAlign: 'left' }}>
                   {fund?.name ?? op.code}
                   <span style={{ fontSize: 10, color: C.dim, marginLeft: 6 }}>{op.code}</span>
                 </td>
-                <td style={{ ...td, color: op.type === 'buy' ? C.up : C.down, fontWeight: 600 }}>
+                <td style={{ ...tdStyle, color: op.type === 'buy' ? C.up : C.down, fontWeight: 600 }}>
                   {op.type === 'buy' ? '买入' : '卖出'}
                 </td>
-                <td style={td}>{fmtMoney(op.shares)}</td>
-                <td style={td}>{fmtMoney(op.price, 4)}</td>
-                <td style={td}>{fmtMoney(op.amount)}</td>
-                <td style={{ ...td, textAlign: 'left', color: C.dim, fontSize: 11, whiteSpace: 'normal' }}>
+                <td style={tdStyle}>{fmtMoney(op.shares)}</td>
+                <td style={tdStyle}>{fmtMoney(op.price, 4)}</td>
+                <td style={tdStyle}>{fmtMoney(op.amount)}</td>
+                <td style={{ ...tdStyle, textAlign: 'left', color: C.dim, fontSize: 11, whiteSpace: 'normal' }}>
                   {op.note || ''}
                 </td>
               </tr>

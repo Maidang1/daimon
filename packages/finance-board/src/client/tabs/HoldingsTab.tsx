@@ -1,7 +1,8 @@
 /** 持仓 tab: positions table with live P&L and per-fund factor weights. */
 
-import type { Holding, Snapshot } from '../api.js'
+import type { Snapshot } from '../api.js'
 import { fmtMoney, fmtPct, pnlColor, C } from '../format.js'
+import { tableStyle, thStyle, tdStyle } from '../table.js'
 
 export function HoldingsTab({ snapshot, onQuickOp, onFundClick }: {
   snapshot: Snapshot
@@ -11,14 +12,6 @@ export function HoldingsTab({ snapshot, onQuickOp, onFundClick }: {
 }): React.ReactElement {
   const holdings = [...snapshot.holdings].sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
   const totalValue = snapshot.summary.total_value
-  const th: React.CSSProperties = {
-    textAlign: 'right', padding: '8px 10px', fontSize: 11, color: C.faint,
-    fontWeight: 500, borderBottom: `1px solid ${C.line2}`, whiteSpace: 'nowrap',
-  }
-  const td: React.CSSProperties = {
-    textAlign: 'right', padding: '8px 10px', fontSize: 12, color: C.text,
-    borderBottom: `1px solid ${C.line}`, whiteSpace: 'nowrap',
-  }
 
   if (holdings.length === 0) {
     return (
@@ -31,18 +24,18 @@ export function HoldingsTab({ snapshot, onQuickOp, onFundClick }: {
 
   return (
     <div style={{ padding: '16px 20px', overflowX: 'auto' }}>
-      <table className="fb-table" style={{ borderCollapse: 'collapse', width: '100%' }}>
+      <table style={tableStyle}>
         <thead>
           <tr>
-            <th style={{ ...th, textAlign: 'left' }}>基金</th>
-            <th style={th}>份额</th>
-            <th style={th}>成本</th>
-            <th style={th}>平均净值</th>
-            <th style={th}>最新净值</th>
-            <th style={th}>市值</th>
-            <th style={th}>占比</th>
-            <th style={th}>盈亏</th>
-            <th style={{ ...th, textAlign: 'center' }}>操作</th>
+            <th style={{ ...thStyle, textAlign: 'left' }}>基金</th>
+            <th style={thStyle}>份额</th>
+            <th style={thStyle}>成本</th>
+            <th style={thStyle}>平均净值</th>
+            <th style={thStyle}>最新净值</th>
+            <th style={thStyle}>市值</th>
+            <th style={thStyle}>占比</th>
+            <th style={thStyle}>盈亏</th>
+            <th style={{ ...thStyle, textAlign: 'center' }}>操作</th>
           </tr>
         </thead>
         <tbody>
@@ -51,23 +44,23 @@ export function HoldingsTab({ snapshot, onQuickOp, onFundClick }: {
               onClick={onFundClick ? () => onFundClick(h.code) : undefined}
               title={onFundClick ? '点击下钻到基金详情' : undefined}
               style={{ cursor: onFundClick ? 'pointer' : undefined }}>
-              <td style={{ ...td, textAlign: 'left' }}>
+              <td style={{ ...tdStyle, textAlign: 'left' }}>
                 <div style={{ fontWeight: 600 }}>{h.name}</div>
                 <div style={{ fontSize: 10, color: C.faint }}>{h.code}{h.navDate ? ` · ${h.navDate}` : ''}</div>
               </td>
-              <td style={td} className="fb-num">{fmtMoney(h.shares)}</td>
-              <td style={td} className="fb-num">{fmtMoney(h.cost)}</td>
-              <td style={td} className="fb-num">{h.avg != null ? fmtMoney(h.avg, 4) : '—'}</td>
-              <td style={td} className="fb-num">{h.nav != null ? fmtMoney(h.nav, 4) : '—'}</td>
-              <td style={td} className="fb-num">{h.value != null ? fmtMoney(h.value) : '—'}</td>
-              <td style={td} className="fb-num">
+              <td style={tdStyle} className="fb-num">{fmtMoney(h.shares)}</td>
+              <td style={tdStyle} className="fb-num">{fmtMoney(h.cost)}</td>
+              <td style={tdStyle} className="fb-num">{h.avg != null ? fmtMoney(h.avg, 4) : '—'}</td>
+              <td style={tdStyle} className="fb-num">{h.nav != null ? fmtMoney(h.nav, 4) : '—'}</td>
+              <td style={tdStyle} className="fb-num">{h.value != null ? fmtMoney(h.value) : '—'}</td>
+              <td style={tdStyle} className="fb-num">
                 {h.value != null && totalValue ? fmtPct(h.value / totalValue * 100, false) : '—'}
               </td>
-              <td style={{ ...td, color: pnlColor(h.pnl) }} className="fb-num">
+              <td style={{ ...tdStyle, color: pnlColor(h.pnl) }} className="fb-num">
                 {h.pnl != null ? fmtMoney(h.pnl) : '—'}
                 <div style={{ fontSize: 10 }}>{fmtPct(h.pnl_pct)}</div>
               </td>
-              <td style={{ ...td, textAlign: 'center' }}>
+              <td style={{ ...tdStyle, textAlign: 'center' }}>
                 <button onClick={ev => { ev.stopPropagation(); onQuickOp(h.code) }} style={{
                   border: `1px solid ${C.line2}`, borderRadius: 6, background: 'transparent',
                   color: C.accentHi, fontSize: 11, padding: '3px 10px', cursor: 'pointer',

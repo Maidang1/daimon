@@ -36,7 +36,8 @@ export interface StreamHandle {
   close: () => void
 }
 
-type ConnectionState = 'connecting' | 'open' | 'closed'
+/** The mux socket's connection state, as the UI indicator consumes it. */
+export type ConnectionState = 'connecting' | 'open' | 'closed'
 
 type ConnectionListener = (state: ConnectionState) => void
 

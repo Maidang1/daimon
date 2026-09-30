@@ -11,15 +11,29 @@
  *
  * The bundle is wrapped for the dsh client module loader by scripts/wrap-client.mjs;
  * runtime imports are limited to the loader's baseline table (react only).
+ *
+ * @module @deepseek-ai/dsh-finance-board/client/index
  */
 
 import { TerminalPanel } from './TerminalPanel.js'
+import { sessions } from '../terminal/dsh/sessions.js'
 
 /** Identity shared by the sidebar panel entry and the main-slot occupant. */
 const PANEL_ID = 'finance'
 
-/** Client-side services this plugin requires. */
-export const inject = ['slots', 'layout']
+/** How long to keep waiting for the deferred panel registration. */
+const SELECT_RETRY_MS = 50
+/** ~2s at `SELECT_RETRY_MS`: long enough for the host's deferred registration. */
+const MAX_SELECT_ATTEMPTS = 40
+
+/** The slice of the client root context this plugin actually uses. */
+interface FinanceClientContext {
+  slots: {
+    inject(slot: string, fn: () => unknown): void
+    register(descriptor: unknown, component: unknown): unknown
+  }
+  layout: { selectPanel(id: string): void }
+}
 
 /** Bar-chart row icon for the sidebar panel list. */
 function FinanceBoardIcon({ size, active }: { size: number; active: boolean }): React.ReactElement {
@@ -36,10 +50,9 @@ function FinanceBoardIcon({ size, active }: { size: number; active: boolean }): 
  * Register the finance terminal panel, its sidebar entry, and the default
  * landing selection.
  *
- * @param ctx - the client root context (typed loosely; the slot registry's
- *   generic machinery belongs to the dsh client internals).
+ * @param ctx - the client root context.
  */
-export function apply(ctx: any): void {
+export function apply(ctx: FinanceClientContext): void {
   ctx.slots.inject('main', () => ctx.slots.register({
     name: 'main',
     key: PANEL_ID,
@@ -50,19 +63,30 @@ export function apply(ctx: any): void {
     order: 0,
     label: () => 'Finance 终端',
   }, FinanceBoardIcon))
-  // Finance-first landing: swap the central column to the terminal on load.
-  // selectPanel throws while the panel id is not registered yet (slot
-  // registration is deferred by the host), so retry briefly instead of
-  // assuming ordering. Once registered the panel stays registered, so a
-  // single success is enough for the app's lifetime.
+
+  // The session store's wiring is the page's, so it starts here once — the
+  // terminal app does the same in its own entry, and each bundle mounts one
+  // of them.
+  sessions.start()
+
   let attempts = 0
+  // Finance-first landing: swap the central column to the terminal on load.
+  // Registration is deferred by the host, so the panel may not exist yet; wait
+  // for it rather than retrying a throwaway call and hoping. `selectPanel`
+  // throws only for an unknown id, so that is the one failure worth waiting
+  // through — anything else is a real bug and is surfaced, not swallowed for
+  // five seconds the way the previous bare `catch` did.
   const selectDefault = (): void => {
     try {
       ctx.layout.selectPanel(PANEL_ID)
-    } catch {
+    } catch (err) {
+      if (attempts >= MAX_SELECT_ATTEMPTS) {
+        throw new Error(`finance panel '${PANEL_ID}' was never registered: ${String(err)}`)
+      }
       attempts += 1
-      if (attempts < 25) setTimeout(selectDefault, 200)
+      setTimeout(selectDefault, SELECT_RETRY_MS)
     }
   }
   selectDefault()
 }
+
