@@ -6,7 +6,7 @@
 [project]
 name = "dsh-rlm-skills"
 version = "0.1.0"
-description = "dsh RLM kernel skills: goal, compact, refine, rlm_heartbeat, agent_message, agent_observe over the host bridge, plus the daimon-native finance analysis package (portfolio ledger, RBSA, hotspot radar, board renderer)"
+description = "dsh RLM kernel skills: goal, compact, refine, rlm_heartbeat, agent_message, agent_observe over the host bridge, plus the daimon-native finance analysis package (portfolio ledger, RBSA, hotspot radar, board renderer) and the quant package (fund backtester, ported metrics/validation, hypothesis ledger, evidence helper)"
 requires-python = ">=3.10"
 dependencies = []
 
@@ -23,4 +23,5 @@ packages = [
     "agent_message",
     "agent_observe",
     "finance",
+    "quant",
 ]

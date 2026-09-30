@@ -35,6 +35,20 @@ in any interpreter that meets the kernel minimum (CPython 3.10+). `finance`'s
 public API is async and stdlib-only at import time; the heavyweight
 dependencies (pandas/scipy) load lazily inside the submodules that need them.
 
+`quant` is the second daimon-native package: quantitative validation for the
+QDII mutual-fund universe. Its `metrics`/`validation` modules are ported from
+HKUDS/Vibe-Trading (MIT) — annualisation, full metric calculation, Monte
+Carlo permutation test, bootstrap Sharpe CI, walk-forward analysis — and its
+`engine` module is a native daily fund-NAV backtester (weights execute at the
+next published NAV, per-lot redemption fees by calendar holding days, cash
+remainder earns 0). Fund data comes from the `finance` package's 天天基金 NAV
+fetch (`quant.fetch_nav` wraps `finance.rbsa.fund_nav`). `quant.ledger` is an
+append-only hypothesis ledger at `$FINANCE_HOME/quant_hypotheses.jsonl` with
+conservative auto-resolution (only explicit `nav_above`/`nav_below` checks
+against a known NAV), and `quant.evidence` is an advisory provenance
+self-check for write-ups. The public API is sync and stdlib-only at import
+time; see the package docstring for the API map.
+
 ## Use inside a dsh kernel (no install)
 
 This directory ships inside the npm package (`py/**/*.py`). Add it to the
