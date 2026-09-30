@@ -10,6 +10,9 @@ rebuild — so it stays cheap enough to run on every `add_op`/`set_holding`.
 `lookthrough` (行业穿透) is opt-in (`include_lookthrough=True`): on a cold
 industry cache it fetches top-10 holdings per fund and can take minutes, so
 only the daily pipeline passes that flag.
+
+The emitted shapes are declared once in `contracts.py` (`UiSnapshot` and
+friends), which `packages/finance-board/src/client/api.ts` mirrors.
 """
 
 from __future__ import annotations
@@ -17,9 +20,18 @@ from __future__ import annotations
 import datetime
 import glob
 import os
-from typing import Any
+from typing import Any, cast
 
 from . import _state
+from .contracts import (
+    AccuracyBlock,
+    Holding,
+    HotspotBlock,
+    SnapshotMeta,
+    SnapshotSummary,
+    UiSnapshot,
+    UiSnapshotFund,
+)
 
 
 def _mod(name: str) -> Any:
@@ -53,11 +65,11 @@ def _load_results() -> dict[str, dict[str, Any]]:
     return results
 
 
-def _positions_block() -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def _positions_block() -> tuple[list[Holding], SnapshotSummary]:
     dashboard = _mod("dashboard")
 
     positions = dashboard.compute_positions()
-    rows: list[dict[str, Any]] = []
+    rows: list[Holding] = []
     total_cost = 0.0
     total_value = 0.0
     valued = 0
@@ -100,9 +112,29 @@ def _positions_block() -> tuple[list[dict[str, Any]], dict[str, Any]]:
     return rows, summary
 
 
-def _funds_block(artifact: dict[str, Any] | None, results: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-    jobs = _mod("jobs")
+def _accuracy_stats(recs: list[dict[str, Any]], mae60: float | None) -> dict[str, Any]:
+    """战绩统计：`{"n": 样本数}`，有样本时再加 `avg_dev` / `hit_rate`。
 
+    命中判定阈值统一走 `rbsa.dev_threshold`（= max(1.2%, 1.5 × 近60日MAE)）：
+    单基金传该基金自己的 mae60，全局汇总没有单一基金、传 None 让兜底下限生效。
+    延迟导入 rbsa：本模块其它路径只读状态文件，不该为了算一次命中率把
+    pandas/numpy 拖进 import 期（命中率计算发生时缓存里通常已经有了）。
+    """
+    from . import rbsa
+
+    stats: dict[str, Any] = {"n": len(recs)}
+    if recs:
+        thr = rbsa.dev_threshold(mae60)
+        stats["avg_dev"] = round(sum(abs(t["dev"]) for t in recs) / len(recs), 2)
+        stats["hit_rate"] = round(sum(1 for t in recs if abs(t["dev"]) <= thr) / len(recs) * 100, 1)
+    return stats
+
+
+def _funds_block(
+    artifact: dict[str, Any] | None,
+    results: dict[str, dict[str, Any]],
+    track: list[dict[str, Any]],
+) -> list[UiSnapshotFund]:
     names: dict[str, str] = {}
     for f in (artifact or {}).get("funds", []):
         if f.get("code") and f.get("name"):
@@ -110,12 +142,7 @@ def _funds_block(artifact: dict[str, Any] | None, results: dict[str, dict[str, A
     for code, res in results.items():
         names.setdefault(code, res.get("fund", {}).get("name", code))
 
-    try:
-        track = jobs.load_track()
-    except Exception:
-        track = []
-
-    funds: list[dict[str, Any]] = []
+    funds: list[UiSnapshotFund] = []
     for code in sorted(set(names) | set(results)):
         res = results.get(code, {})
         art_fund = next((f for f in (artifact or {}).get("funds", []) if f.get("code") == code), {})
@@ -126,14 +153,7 @@ def _funds_block(artifact: dict[str, Any] | None, results: dict[str, dict[str, A
             key=lambda x: -x["pct"],
         )[:5]
         recs = [t for t in track if t.get("code") == code and t.get("dev") is not None]
-        accuracy: dict[str, Any] = {"n": len(recs)}
-        if recs:
-            avg_dev = sum(abs(t["dev"]) for t in recs) / len(recs)
-            thr = max(0.5, 1.5 * (bt.get("mae60") or 1.0))
-            accuracy["avg_dev"] = round(avg_dev, 2)
-            accuracy["hit_rate"] = round(
-                sum(1 for t in recs if abs(t["dev"]) <= thr) / len(recs) * 100, 1
-            )
+        accuracy = _accuracy_stats(recs, bt.get("mae60"))
         pred = res.get("pred") if isinstance(res, dict) else None
         signals = res.get("signals") if isinstance(res, dict) else None
         nav_tail = res.get("nav_tail") if isinstance(res, dict) else None
@@ -164,20 +184,11 @@ def _funds_block(artifact: dict[str, Any] | None, results: dict[str, dict[str, A
     return funds
 
 
-def _accuracy_block() -> dict[str, Any]:
-    jobs = _mod("jobs")
-
-    try:
-        track = jobs.load_track()
-    except Exception:
-        track = []
+def _accuracy_block(track: list[dict[str, Any]]) -> AccuracyBlock:
     recs = [t for t in track if t.get("dev") is not None]
-    block: dict[str, Any] = {"n": len(recs)}
-    if recs:
-        block["avg_dev"] = round(sum(abs(t["dev"]) for t in recs) / len(recs), 2)
-        block["hit_rate"] = round(
-            sum(1 for t in recs if abs(t["dev"]) <= max(0.5, 1.5)) / len(recs) * 100, 1
-        )
+    # 全局汇总没有单一基金，mae60 传 None 让 dev_threshold 的兜底下限生效；
+    # 键顺序沿用旧版（n → avg_dev → hit_rate → recent），avg_dev/hit_rate 无样本时整个不出现。
+    block: dict[str, Any] = dict(_accuracy_stats(recs, None))
     recent = sorted(track, key=lambda t: (t.get("navDate", ""), t.get("code", "")), reverse=True)[:10]
     block["recent"] = [
         {
@@ -189,10 +200,10 @@ def _accuracy_block() -> dict[str, Any]:
         }
         for t in recent
     ]
-    return block
+    return cast(AccuracyBlock, block)
 
 
-def _hotspot_block() -> dict[str, Any]:
+def _hotspot_block() -> HotspotBlock:
     path = _state.state_path("hotspot.json")
     data = _state.read_json(path, None)
     if not isinstance(data, dict) or not data:
@@ -211,7 +222,7 @@ def time_age(path: str) -> float:
         return 0.0
 
 
-def build(include_lookthrough: bool = False) -> dict[str, Any]:
+def build(include_lookthrough: bool = False) -> UiSnapshot:
     """Assemble the UI snapshot and write it to `state/ui_snapshot.json`.
     Returns the snapshot dict. Never raises on partial state: individual
     blocks degrade to empty values so the UI can render what exists."""
@@ -219,6 +230,11 @@ def build(include_lookthrough: bool = False) -> dict[str, Any]:
 
     artifact, pending_artifact = _load_artifact()
     results = _load_results()
+    try:
+        # 战绩文件只读一次，_funds_block / _accuracy_block 共用；读坏时降级为空战绩
+        track = _state.load_track()
+    except Exception:
+        track = []
     holdings, summary = _positions_block()
     ops = [dict(o, index=i) for i, o in enumerate(dashboard.load_ops())]
     summary["ops_count"] = len(ops)
@@ -233,21 +249,22 @@ def build(include_lookthrough: bool = False) -> dict[str, Any]:
         except Exception as exc:  # cold cache / network failure → UI shows hint
             lookthrough = {"error": str(exc)[:200]}
 
-    snapshot = {
+    meta: SnapshotMeta = {
+        "finance_home": _state.home(),
+        "pending_artifact": pending_artifact,
+        "artifact_updated_at": (artifact or {}).get("updatedAt"),
+        "artifact_job_kind": (artifact or {}).get("jobKind"),
+        "artifact_summary": (artifact or {}).get("summary"),
+    }
+    snapshot: UiSnapshot = {
         "version": SNAPSHOT_VERSION,
         "generated_at": datetime.datetime.now().isoformat(timespec="seconds"),
-        "meta": {
-            "finance_home": _state.home(),
-            "pending_artifact": pending_artifact,
-            "artifact_updated_at": (artifact or {}).get("updatedAt"),
-            "artifact_job_kind": (artifact or {}).get("jobKind"),
-            "artifact_summary": (artifact or {}).get("summary"),
-        },
+        "meta": meta,
         "summary": summary,
         "holdings": holdings,
         "ops": ops,
-        "funds": _funds_block(artifact, results),
-        "accuracy": _accuracy_block(),
+        "funds": _funds_block(artifact, results, track),
+        "accuracy": _accuracy_block(track),
         "hotspot": _hotspot_block(),
         "lookthrough": lookthrough,
     }

@@ -245,7 +245,7 @@ document.getElementById("grid").innerHTML = artifact.funds.map(f=>{
     </div>`}
     ${spark(f.code)}
     ${f.weights&&f.weights.length?`<div class="weights">${f.weights.slice(0,6).map(w=>`<span class="w">${esc(w.name)} <b>${w.pct}%</b></span>`).join("")}</div>`:""}
-    ${f.signals&&f.signals.length?`<div class="signals">${f.signals.map(s=>`<div class="sig ${s.level}"><i></i>${esc(s.label)}</div>`).join("")}</div>`:""}
+    ${f.signalChips&&f.signalChips.length?`<div class="signals">${f.signalChips.map(s=>`<div class="sig ${s.level}"><i></i>${esc(s.label)}</div>`).join("")}</div>`:""}
     ${f.alert?`<div class="alert">⚠ ${esc(f.alert)}</div>`:""}
     ${intraday}${err}${detail}
   </div>`;

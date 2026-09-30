@@ -13,13 +13,22 @@ Fork 自 touzi/daily_job.py；所有状态归 FINANCE_HOME（经 _state 在调�
   track.json       战绩记录（官方公布后核对）
   artifact_<mode>.json / artifact_latest.json   看板数据（widget artifact）
 """
-import os, sys, json, re, time, datetime
+import os, sys, json, re, time, datetime, random
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 
 from . import _state
 from . import rbsa
+
+# 实时行情并发度：每个 ticker 一次 HTTP，8 路足够把 Yahoo 的 RTT 重叠掉，
+# 又不会对 Yahoo chart API 形成登录态级别的并发压力。
+_LIVE_WORKERS = 8
+
+# 行情涨跌幅的脏数据护栏：|涨跌幅| ≥ 25% 基本只可能是拆股/复权错位或源站坏点，
+# 而不是真实波动（QDII 单日 ±25% 不存在），直接丢弃而不是喂进估算。
+_LIVE_PCT_GUARD = 25.0
 
 
 # 自动发现：FINANCE_HOME 下存在 config.json 的基金即纳入每日拟合
@@ -31,41 +40,36 @@ def _funds():
     )
 
 
-# 偏差报警阈值：|偏差| > max(1.2%, 1.5 × 近60日MAE)
+# 偏差报警阈值：|偏差| > max(1.2%, 1.5 × 近60日MAE)。实现已下沉到 rbsa（误差模型口径），
+# 这里保留同名入口，既有调用方与 CLI 用法都不用改。
 def dev_threshold(mae60_pct):
-    return max(1.2, 1.5 * (mae60_pct or 1.0))
+    return rbsa.dev_threshold(mae60_pct)
 
 
 # ---------------- 状态读写 ----------------
+# 实现已下沉到 _state（纯文件 I/O，jobs 之外的轻量模块也能直接 import 它），
+# 这里保留同名薄封装，让 jobs 内部与既有调用方继续可用。
 def load_pred_log():
-    entries = {}
-    pred_log = _state.state_path("pred_log.jsonl")
-    if os.path.exists(pred_log):
-        with open(pred_log, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                e = json.loads(line)
-                entries[(e["code"], e["navDate"], e["mode"])] = e
-    return entries
+    """读取 state/pred_log.jsonl → {(code, navDate, mode): 预测记录}。"""
+    return _state.load_pred_log()
 
 
 def save_pred_log(entries):
-    pred_log = _state.state_path("pred_log.jsonl")
-    _state.ensure_dir(os.path.dirname(pred_log))
-    with open(pred_log, "w", encoding="utf-8"):
-        pass
-    for e in sorted(entries.values(), key=lambda x: (x["navDate"], x["code"])):
-        _state.append_jsonl(pred_log, e)
+    """原子重写 state/pred_log.jsonl：按 (navDate, code) 排序后整份落盘。
+
+    早先这里是"先清空再逐行 append"，写一半崩溃会把不可重建的账本留成空/残缺文件。
+    """
+    _state.save_pred_log(entries)
 
 
 def load_track():
-    return _state.read_json(_state.state_path("track.json"), [])
+    """读取 state/track.json（战绩核对记录），读坏时返回 []。"""
+    return _state.load_track()
 
 
 def save_track(t):
-    _state.write_json(_state.state_path("track.json"), t[-300:])
+    """写 state/track.json（只保留最近 300 条）。"""
+    _state.save_track(t)
 
 
 # ---------------- 腾讯实时行情（A股/港股盘中） ----------------
@@ -126,7 +130,7 @@ def fetch_live(ifind_codes):
         try:
             now_p, prev = float(f[3]), float(f[4])
             pct = (now_p / prev - 1) * 100
-            if prev > 0 and abs(pct) < 25:
+            if prev > 0 and abs(pct) < _LIVE_PCT_GUARD:
                 out[syms[sym]] = round(pct, 2)
         except (ValueError, ZeroDivisionError):
             continue
@@ -136,10 +140,39 @@ def fetch_live(ifind_codes):
 _YF_LIVE_UA = {"User-Agent": "Mozilla/5.0"}
 
 
+def _fetch_live_concurrent(tickers, fetch_one):
+    """并发抓取每只 ticker 的实时行情 → {ticker: 涨跌幅%}（单只失败只丢它自己）。
+
+    原来是「顺序抓 + 每只 sleep(0.3)」：N 只就是 N × (RTT + 300ms) 的纯等待。
+    现在 8 路并发，RTT 互相重叠；在途请求数由 max_workers 封顶，请求速率与顺序版
+    的 ~3.3 req/s（= 1/0.3）同量级，所以去掉那只固定 sleep，改成每个请求前的随机
+    抖动（≤0.2s）把同一批请求的起始时刻错开。每只 ticker 的解析、`abs(pct) <
+    _LIVE_PCT_GUARD` 护栏、失败日志与返回形状都保持不变。
+    """
+    out = {}
+    tickers = list(tickers)
+    if not tickers:
+        return out
+
+    def _guarded(t):
+        time.sleep(random.uniform(0, 0.2))   # 抖动：错开同一批并发请求
+        try:
+            pct = fetch_one(t)
+        except Exception as e:   # 兜底：单只崩掉只丢它自己，别拖垮整轮行情
+            print(f"[live] {t} 行情抓取异常: {e}")
+            pct = None
+        return t, pct
+
+    with ThreadPoolExecutor(max_workers=_LIVE_WORKERS) as ex:
+        for t, pct in ex.map(_guarded, tickers):
+            if pct is not None:
+                out[t] = pct
+    return out
+
+
 def fetch_live_yf_asia(tickers):
     """日/韩等 Yahoo 日线：最新价（已收盘=今日收盘，盘中=最新价）相对昨日收盘的涨跌幅%"""
-    out = {}
-    for t in tickers:
+    def _one(t):
         try:
             url = f"https://query1.finance.yahoo.com/v8/finance/chart/{t}?range=5d&interval=1d"
             req = urllib.request.Request(url, headers=_YF_LIVE_UA)
@@ -147,18 +180,18 @@ def fetch_live_yf_asia(tickers):
             closes = [c for c in raw["chart"]["result"][0]["indicators"]["quote"][0]["close"] if c]
             if len(closes) >= 2:
                 pct = (closes[-1] / closes[-2] - 1) * 100
-                if abs(pct) < 25:
-                    out[t] = round(pct, 2)
+                if abs(pct) < _LIVE_PCT_GUARD:
+                    return round(pct, 2)
         except Exception as e:
             print(f"[live] Yahoo 日线 {t} 拉取失败: {e}")
-        time.sleep(0.3)
-    return out
+        return None
+
+    return _fetch_live_concurrent(tickers, _one)
 
 
 def fetch_live_us_prepost(tickers):
     """美股盘后/盘前最新价 相对 最近常规时段收盘 的涨跌幅%（美股今晚未开时的增量变动，不按 0 计）"""
-    out = {}
-    for t in tickers:
+    def _one(t):
         try:
             url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{t}"
                    f"?range=1d&interval=5m&includePrePost=true")
@@ -169,12 +202,13 @@ def fetch_live_us_prepost(tickers):
             closes = [c for c in (r0["indicators"]["quote"][0].get("close") or []) if c]
             if base and closes:
                 pct = (closes[-1] / base - 1) * 100
-                if abs(pct) < 25:
-                    out[t] = round(pct, 2)
+                if abs(pct) < _LIVE_PCT_GUARD:
+                    return round(pct, 2)
         except Exception as e:
             print(f"[live] Yahoo 盘前盘后 {t} 拉取失败: {e}")
-        time.sleep(0.3)
-    return out
+        return None
+
+    return _fetch_live_concurrent(tickers, _one)
 
 
 # ---------------- 基金截面（两种模式共用） ----------------
@@ -184,8 +218,15 @@ def run_fund(code):
 
 
 def fund_section(code, res, cfg):
+    """看板 artifact 的单基金段（呈现用驼峰键，和 UiSnapshot 的蛇形键是两套）。
+
+    `signalChips` 是**展示信号列表**（`{label, level}` 文案，只喂看板 HTML）——
+    故意不叫 `signals`：本包里 `signals` 一律指 rbsa 裸信号字典
+    （result.json / ui_snapshot.json 的 `UiSnapshotFund.signals`），两种形状不兼容，
+    别再把它们塞进同一个键名。
+    """
     sig = res["signals"]
-    signals = [
+    signalChips = [
         {"label": f"20日均线 {sig['ma20']:.2f}：" + ("站上" if sig["above_ma20"] else "下方"),
          "level": "ok" if sig["above_ma20"] else "warn"},
         {"label": f"前低 {sig['trough']:.4f}：" + ("跌破!" if sig["below_trough"] else "未破"),
@@ -207,7 +248,7 @@ def fund_section(code, res, cfg):
         "predNote": res["status"]["note"],
         "band": f"80%误差带 {bt['p10']:+.1f}%~{bt['p90']:+.1f}% · MAE {bt['mae']:.2f}%",
         "r2": res["r2"], "mae": bt["mae"], "mae60": bt["mae60"],
-        "weights": w, "signals": signals, "alert": None, "intraday": None, "error": None,
+        "weights": w, "signalChips": signalChips, "alert": None, "intraday": None, "error": None,
     }
     return sec
 
@@ -238,7 +279,7 @@ def morning():
             cfg, res = run_fund(code)
         except Exception as e:
             fund_secs.append({"code": code, "name": code, "officialNav": 0, "officialDate": "",
-                              "error": str(e)[:200], "weights": [], "signals": [],
+                              "error": str(e)[:200], "weights": [], "signalChips": [],
                               "alert": "数据拉取失败", "intraday": None})
             continue
         sec = fund_section(code, res, cfg)
@@ -431,7 +472,7 @@ def afternoon():
             res = rbsa.run(cfg)
         except Exception as e:
             fund_secs.append({"code": code, "name": code, "officialNav": 0, "officialDate": "",
-                              "error": str(e)[:200], "weights": [], "signals": [],
+                              "error": str(e)[:200], "weights": [], "signalChips": [],
                               "alert": "数据拉取失败", "intraday": None})
             continue
         sec = fund_section(code, res, cfg)

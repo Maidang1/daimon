@@ -180,6 +180,14 @@ def rbsa(win_df, fcols):
     return w, float(r2)
 
 
+# 误差模型口径的偏差报警阈值：|偏差| > max(1.2%, 1.5 × 近60日MAE)。
+# jobs 的早间大偏差修正、snapshot 的命中率统计都走这一个函数，
+# 公式只留这一份，不要再在各调用处重写（历史上三处口径互不一致就是坑）。
+def dev_threshold(mae60_pct: float | None) -> float:
+    """偏差阈值（pct）：`max(1.2, 1.5 × mae60)`，mae60 缺失时按 1.0% 兜底。"""
+    return max(1.2, 1.5 * (mae60_pct or 1.0))
+
+
 def run(cfg):
     code, name = cfg["code"], cfg["name"]
     baskets = cfg["baskets"]

@@ -222,7 +222,7 @@ def analyze_dca_advice() -> str:
 {json.dumps([{
     '代码': f.get('code'), '名称': f.get('name'),
     '官方最新净值': f.get('officialNav'), '今日预测涨跌%': f.get('predRet'),
-    '技术信号': f.get('signals', []),
+    '技术信号': f.get('signalChips', []),
     '预测误差带': f.get('band', '')
 } for f in funds], ensure_ascii=False, indent=2)}
 

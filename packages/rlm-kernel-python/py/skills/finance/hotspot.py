@@ -337,7 +337,7 @@ def stock_sector(tk):
 def fund_accuracy(code, mae60):
     """track.json 战绩：记录数 / 平均绝对偏差 / 命中率（容差 max(0.5%, 1.5×mae60)）"""
     try:
-        track = jobs.load_track()
+        track = _state.load_track()
     except Exception:
         track = []
     recs = [t for t in track if t.get("code") == code and t.get("dev") is not None]

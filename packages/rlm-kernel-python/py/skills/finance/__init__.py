@@ -54,6 +54,7 @@ from typing import Any
 
 from ._state import FinanceError
 from . import _state
+from .contracts import BriefingNews
 
 _HOTSPOT_CACHE_SECONDS = 600  # 10-minute hotspot TTL
 
@@ -490,11 +491,9 @@ async def accuracy() -> dict[str, Any]:
     including still-pending predictions (`status: "pending"`)."""
 
     def call() -> dict[str, Any]:
-        import json
-
         pm = _mod("portfolio")
         artifact = _state.read_json(_state.state_path("artifact_latest.json"), {})
-        track = _state.read_json(_state.state_path("track.json"), [])
+        track = _state.load_track()
 
         names = {f["code"]: f["name"] for f in artifact.get("funds", []) if f.get("name")}
         for code, name in pm.get_all_funds().items():
@@ -517,35 +516,28 @@ async def accuracy() -> dict[str, Any]:
             accuracy.append(rec)
 
         # Predictions made but not yet officially published → pending review.
-        pred_log = _state.state_path("pred_log.jsonl")
         latest_official = {f["code"]: f.get("officialDate", "") for f in artifact.get("funds", [])}
-        if os.path.exists(pred_log):
-            seen: dict[tuple[str, str], Any] = {}
-            with open(pred_log, encoding="utf-8") as fh:
-                for line in fh:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    e = json.loads(line)
-                    if e.get("mode") != "locked":
-                        continue
-                    seen[(e["code"], e["navDate"])] = e
-            for (code, nav_date), e in sorted(seen.items(), key=lambda x: x[0][1], reverse=True):
-                if (code, nav_date) in tracked:
-                    continue
-                if nav_date <= latest_official.get(code, ""):
-                    continue
-                accuracy.append(
-                    {
-                        "code": code,
-                        "name": names.get(code, code),
-                        "navDate": nav_date,
-                        "predRet": e["predRet"],
-                        "predNav": e["predNav"],
-                        "madeAt": e["madeAt"],
-                        "status": "pending",
-                    }
-                )
+        seen: dict[tuple[str, str], Any] = {}
+        for (code, nav_date, mode), e in _state.load_pred_log().items():
+            if mode != "locked":
+                continue
+            seen[(code, nav_date)] = e
+        for (code, nav_date), e in sorted(seen.items(), key=lambda x: x[0][1], reverse=True):
+            if (code, nav_date) in tracked:
+                continue
+            if nav_date <= latest_official.get(code, ""):
+                continue
+            accuracy.append(
+                {
+                    "code": code,
+                    "name": names.get(code, code),
+                    "navDate": nav_date,
+                    "predRet": e["predRet"],
+                    "predNav": e["predNav"],
+                    "madeAt": e["madeAt"],
+                    "status": "pending",
+                }
+            )
         return {"accuracy": accuracy}
 
     return await asyncio.to_thread(call)
@@ -676,14 +668,16 @@ async def live_estimate() -> dict[str, Any]:
     return result
 
 
-async def briefing(news: list[dict[str, Any]] | None = None, greeting: str | None = None) -> dict[str, Any]:
+async def briefing(news: list[BriefingNews] | None = None, greeting: str | None = None) -> dict[str, Any]:
     """Generate the daily home-view briefing (`state/briefing.json`): major
-    index quotes (direct from the quote channel) + the news list + suggestion
-    chips, plus `state/briefing_candidates.json` with raw hotspot catalysts
-    for the agent to curate. With `news=None` an existing same-day news list
-    (agent-written) is preserved; pass `news=[...]` to write the curated list
-    back after interpreting candidates (`title/source/time/impact/funds/
-    prompt` per item)."""
+    index quotes (direct from the quote channel) + the news list, plus
+    `state/briefing_candidates.json` with raw hotspot catalysts for the agent
+    to curate. With `news=None` an existing same-day news list (agent-written)
+    is preserved; pass `news=[...]` to write the curated list back after
+    interpreting candidates (`title/source/time/impact/funds/prompt` per item).
+    The greeting and the suggestion chips are owned by the AI home view
+    (browser-local clock + its own fallback list), so they are NOT written
+    here — `greeting` is persisted only when passed explicitly."""
 
     def call() -> dict[str, Any]:
         return _mod("briefing").build(news=news, greeting=greeting)
