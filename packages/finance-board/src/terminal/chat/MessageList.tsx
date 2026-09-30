@@ -5,6 +5,11 @@
  *
  * v1 rendering is intentionally light: newlines preserved, fenced code gets a
  * panel background — no syntax highlighting, no markdown parser.
+ *
+ * Visuals: assistant messages get a gradient avatar and open typography
+ * (ChatGPT-style), user messages a right-aligned brand-dim bubble; streaming
+ * shows a blinking cursor, empty streaming bubbles the thinking dots; tool
+ * calls render as status-bar cards with a CSS spinner while running.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -33,8 +38,8 @@ function Text({ text }: { text: string }): React.ReactElement {
       {parts.map((part, i) =>
         part.startsWith('```') ? (
           <pre key={i} style={{
-            background: 'rgba(0,0,0,0.35)', borderRadius: 6, padding: '8px 10px',
-            fontSize: 12, overflowX: 'auto', margin: '6px 0',
+            background: 'var(--fb-bg-0)', borderRadius: 'var(--fb-r-sm)', padding: '8px 10px',
+            fontSize: 12, overflowX: 'auto', margin: '6px 0', border: '1px solid var(--fb-line-1)',
           }}>
             {part.replace(/^```\w*\n?/, '').replace(/```$/, '')}
           </pre>
@@ -54,38 +59,39 @@ function ToolCard({ msg }: { msg: Extract<ChatMessage, { kind: 'tool' }> }): Rea
   const lines = (msg.output ?? '').split('\n')
   const truncated = lines.length > TOOL_OUTPUT_HEAD_LINES
   const shown = open || !truncated ? lines : lines.slice(0, TOOL_OUTPUT_HEAD_LINES)
-  const statusIcon = msg.status === 'running' ? '⏳' : msg.status === 'error' ? '✗' : '✓'
-  const statusColor = msg.status === 'error' ? C.up : msg.status === 'running' ? C.warn : C.dim
   return (
-    <div style={{
-      margin: '4px 0', border: `1px solid ${C.line}`, borderRadius: 8,
-      background: C.panel, fontSize: 12, overflow: 'hidden',
-    }}>
+    <div className={`fb-tool-card ${msg.status}`} style={{ margin: '4px 0' }}>
+      <span className="bar" />
       <button
         onClick={() => setOpen(o => !o)}
         style={{
           display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
-          background: 'transparent', border: 'none', color: C.text, cursor: 'pointer',
-          padding: '7px 10px', fontSize: 12,
+          background: 'transparent', border: 'none', color: 'var(--fb-text-1)', cursor: 'pointer',
+          padding: '8px 12px 8px 15px', fontSize: 12, fontFamily: 'var(--fb-font-ui)',
         }}
       >
-        <span style={{ color: statusColor }}>{statusIcon}</span>
-        <strong>{msg.name}</strong>
+        {msg.status === 'running'
+          ? <span className="fb-spinner" />
+          : (
+            <span style={{ color: msg.status === 'error' ? 'var(--fb-up)' : 'var(--fb-down)' }}>
+              {msg.status === 'error' ? '✗' : '✓'}
+            </span>
+          )}
+        <strong className="fb-mono" style={{ fontSize: 12 }}>{msg.name}</strong>
         {msg.argsSummary && (
-          <span style={{ color: C.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+          <span style={{ color: 'var(--fb-text-4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
             {msg.argsSummary}
           </span>
         )}
-        <span style={{ color: C.dim, marginLeft: 'auto' }}>{open ? '▾' : '▸'}</span>
+        <span style={{ color: 'var(--fb-text-4)', marginLeft: 'auto' }}>{open ? '▾' : '▸'}</span>
       </button>
       {open && msg.output !== undefined && (
-        <pre style={{
-          margin: 0, padding: '8px 10px', borderTop: `1px solid ${C.line}`,
-          background: 'rgba(0,0,0,0.3)', fontSize: 11, overflowX: 'auto',
+        <pre className="fb-scroll" style={{
+          margin: 0, padding: '8px 12px 8px 15px', borderTop: '1px solid var(--fb-line-1)',
+          background: 'var(--fb-bg-0)', fontSize: 11, overflowX: 'auto',
           whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 320, overflowY: 'auto',
         }}>
           {shown.join('\n')}
-          {truncated && !open && ''}
           {truncated && `\n…（共 ${lines.length} 行）`}
         </pre>
       )}
@@ -96,11 +102,8 @@ function ToolCard({ msg }: { msg: Extract<ChatMessage, { kind: 'tool' }> }): Rea
 function Bubble({ msg }: { msg: ChatMessage }): React.ReactElement {
   if (msg.kind === 'user') {
     return (
-      <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '6px 0' }}>
-        <div style={{
-          maxWidth: '88%', background: 'rgba(77, 159, 255, 0.16)', border: `1px solid rgba(77,159,255,0.35)`,
-          borderRadius: 10, padding: '7px 11px', fontSize: 13,
-        }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '10px 0' }}>
+        <div className="fb-user-bubble">
           <Text text={msg.text} />
         </div>
       </div>
@@ -108,17 +111,33 @@ function Bubble({ msg }: { msg: ChatMessage }): React.ReactElement {
   }
   if (msg.kind === 'assistant') {
     return (
-      <div style={{ margin: '6px 0', fontSize: 13, lineHeight: 1.7 }}>
-        <Text text={msg.text} />
-        {msg.streaming && <span style={{ color: C.accent }}>▍</span>}
+      <div style={{ display: 'flex', gap: 10, margin: '10px 0' }}>
+        <span className="fb-avatar">✦</span>
+        <div style={{ flex: 1, minWidth: 0, fontSize: 13, lineHeight: 1.8, paddingTop: 2 }}>
+          {msg.text
+            ? <Text text={msg.text} />
+            : msg.streaming && (
+              <span className="fb-dots" style={{ color: 'var(--fb-text-3)', padding: '4px 0' }}>
+                <span /><span /><span />
+              </span>
+            )}
+          {msg.streaming && msg.text && <span className="fb-cursor">▍</span>}
+        </div>
       </div>
     )
   }
-  if (msg.kind === 'tool') return <ToolCard msg={msg} />
+  if (msg.kind === 'tool') {
+    return (
+      <div style={{ display: 'flex', gap: 10, margin: '4px 0' }}>
+        <span style={{ width: 26, flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}><ToolCard msg={msg} /></div>
+      </div>
+    )
+  }
   return (
     <div style={{
-      margin: '6px 0', fontSize: 12, textAlign: 'center',
-      color: msg.tone === 'error' ? C.up : C.dim,
+      margin: '8px 0', fontSize: 12, textAlign: 'center',
+      color: msg.tone === 'error' ? C.up : 'var(--fb-text-4)',
     }}>
       {msg.text}
     </div>
@@ -138,15 +157,17 @@ export function MessageList({ messages }: { messages: ChatMessage[] }): React.Re
   return (
     <div
       ref={scrollRef}
+      className="fb-scroll"
       onScroll={() => {
         const el = scrollRef.current
         if (el) pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
       }}
-      style={{ flex: 1, overflowY: 'auto', padding: '10px 14px', minHeight: 0 }}
+      style={{ flex: 1, overflowY: 'auto', padding: '6px 0', minHeight: 0 }}
     >
       {messages.length === 0 && (
-        <div style={{ color: C.dim, fontSize: 12, textAlign: 'center', marginTop: 48 }}>
-          没有消息。在下面输入，或从终端面板发起快捷操作。
+        <div style={{ textAlign: 'center', marginTop: 64 }}>
+          <div className="fb-empty-logo" style={{ margin: '0 auto 16px' }} />
+          <div style={{ color: 'var(--fb-text-3)', fontSize: 13 }}>向 daimon 提问，开始分析你的持仓</div>
         </div>
       )}
       {messages.map(msg => <Bubble key={msg.id} msg={msg} />)}

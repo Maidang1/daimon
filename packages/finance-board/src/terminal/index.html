@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>daimon · 金融终端</title>
-  <!-- 防闪烁：首帧前就把暗色底铺上，等 app.js 接管 -->
+  <link rel="stylesheet" href="/terminal/app.css">
+  <!-- 防闪烁：首帧前就把暗色底铺上，等 app.js 接管（与 terminal.css --fb-bg-0 一致） -->
   <style>
-    html, body { margin: 0; padding: 0; height: 100%; background: #0d1117; color: #e6edf3;
+    html, body { margin: 0; padding: 0; height: 100%; background: #151517; color: #f9fafb;
       font-family: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; }
     #root { height: 100%; }
     #boot { display: flex; align-items: center; justify-content: center; height: 100%;
-      color: rgba(127, 140, 152, 0.9); font-size: 13px; letter-spacing: 0.05em; }
+      color: #81858c; font-size: 13px; letter-spacing: 0.05em; }
   </style>
 </head>
 <body>

@@ -2,9 +2,25 @@
  * Hand-rolled SVG charts (line / bars / sparkline). The dsh client bundle
  * may only import `react` at runtime, so no chart library — these cover the
  * 终端's needs with zero dependencies.
+ *
+ * Colors are hex constants on purpose: SVG presentation attributes do not
+ * resolve var(), and this file is shared by the old client bundle which never
+ * loads terminal.css. Single-point maintenance lives here, values mirror the
+ * --fb-* tokens.
  */
 
 import { C } from './format.js'
+
+/** Hex palette for SVG attributes (mirrors --fb-* tokens). */
+const CH = {
+  up: '#f25a5a',
+  down: '#22c55e',
+  warn: '#f59e0b',
+  track: '#ffffff14',
+  line: '#ffffff1f',
+}
+
+let gradientSeq = 0
 
 function pointsOf(values: number[], width: number, height: number, pad = 2): string {
   if (values.length === 0) return ''
@@ -17,11 +33,13 @@ function pointsOf(values: number[], width: number, height: number, pad = 2): str
     .join(' ')
 }
 
-/** Simple time-series line with axis-free minimal chrome. */
-export function LineChart({ values, width = '100%', height = 140 }: {
+/** Simple time-series line with gradient area fill and axis-free minimal chrome. */
+export function LineChart({ values, width = '100%', height = 140, ma20 }: {
   values: number[]
   width?: number | string
   height?: number
+  /** Optional horizontal reference line (dashed amber), in the same unit as values. */
+  ma20?: number
 }): React.ReactElement {
   const w = 600
   const h = height as number
@@ -30,14 +48,32 @@ export function LineChart({ values, width = '100%', height = 140 }: {
       数据不足
     </div>
   }
-  const pts = pointsOf(values, w, h, 6)
+  // Include the MA20 reference in the value domain so the guide line stays in frame.
+  const domain = ma20 !== undefined ? [...values, ma20] : values
+  const min = Math.min(...domain)
+  const max = Math.max(...domain)
+  const span = max - min || 1
+  const yOf = (v: number): number => h - 6 - ((v - min) / span) * (h - 12)
+  const linePts = values.map((v, i) => `${(6 + i * ((w - 12) / (values.length - 1))).toFixed(1)},${yOf(v).toFixed(1)}`).join(' ')
   const last = values[values.length - 1]
   const rising = values.length > 1 && last >= values[0]
-  const lineColor = rising ? C.up : C.down
+  const lineColor = rising ? CH.up : CH.down
+  const gid = `fb-area-${++gradientSeq}`
   return (
     <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width, height: h, display: 'block' }}
       role="img" aria-label="趋势图">
-      <polyline points={pts} fill="none" stroke={lineColor} strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={lineColor} stopOpacity={0.22} />
+          <stop offset="100%" stopColor={lineColor} stopOpacity={0} />
+        </linearGradient>
+      </defs>
+      <polygon points={`6,${h} ${linePts} ${w - 6},${h}`} fill={`url(#${gid})`} stroke="none" />
+      <polyline points={linePts} fill="none" stroke={lineColor} strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
+      {ma20 !== undefined && (
+        <line x1={6} y1={yOf(ma20)} x2={w - 6} y2={yOf(ma20)} stroke={CH.warn}
+          strokeWidth={1} strokeDasharray="5 4" vectorEffect="non-scaling-stroke" />
+      )}
     </svg>
   )
 }
@@ -51,10 +87,10 @@ export function BarRow({ label, value, maxAbs, width = 200 }: {
 }): React.ReactElement {
   const half = width / 2
   const len = maxAbs > 0 ? Math.min(Math.abs(value) / maxAbs, 1) * (half - 4) : 0
-  const color = value >= 0 ? C.up : C.down
+  const color = value >= 0 ? CH.up : CH.down
   return (
     <svg width={width} height={12} style={{ display: 'block' }} aria-hidden>
-      <line x1={half} y1={0} x2={half} y2={12} stroke={C.line} strokeWidth={1} />
+      <line x1={half} y1={0} x2={half} y2={12} stroke={CH.line} strokeWidth={1} />
       <rect x={value >= 0 ? half : half - len} y={3.5} width={Math.max(len, value === 0 ? 0 : 1.5)} height={5}
         rx={2} fill={color} />
     </svg>
@@ -72,7 +108,7 @@ export function Sparkline({ values, width = 72, height = 20 }: {
   return (
     <svg viewBox={`0 0 ${width} ${height}`} style={{ width, height, display: 'inline-block' }} aria-hidden>
       <polyline points={pointsOf(values, width, height, 2)} fill="none"
-        stroke={rising ? C.up : C.down} strokeWidth={1.2} />
+        stroke={rising ? CH.up : CH.down} strokeWidth={1.2} />
     </svg>
   )
 }
@@ -83,10 +119,10 @@ export function HeatBar({ pct, width = 64, height = 8 }: {
   width?: number
   height?: number
 }): React.ReactElement {
-  const color = pct >= 70 ? C.up : pct >= 40 ? C.warn : C.down
+  const color = pct >= 70 ? CH.up : pct >= 40 ? CH.warn : CH.down
   return (
     <svg width={width} height={height} style={{ display: 'inline-block' }} aria-hidden>
-      <rect x={0} y={0} width={width} height={height} rx={4} fill={C.panel} />
+      <rect x={0} y={0} width={width} height={height} rx={4} fill={CH.track} />
       <rect x={0} y={0} width={(Math.min(pct, 100) / 100) * width} height={height} rx={4} fill={color} />
     </svg>
   )

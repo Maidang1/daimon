@@ -47,18 +47,21 @@ export function QuickOpModal({ holdings, initialCode, onClose, onDone }: {
   }
 
   const inputStyle: React.CSSProperties = {
-    background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6,
-    color: C.text, padding: '6px 10px', fontSize: 13, width: '100%', boxSizing: 'border-box',
+    background: C.panelHi, border: `1px solid ${C.line2}`, borderRadius: 8,
+    color: C.text, padding: '7px 10px', fontSize: 13, width: '100%', boxSizing: 'border-box',
+    fontFamily: 'inherit', outline: 'none',
   }
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000,
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
+      backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)',
     }} onClick={onClose}>
       <div style={{
-        background: C.bg, border: `1px solid ${C.line}`, borderRadius: 12,
-        padding: 20, width: 380, maxWidth: '90vw', boxShadow: '0 12px 40px rgba(0,0,0,0.5)',
+        background: C.bg, border: `1px solid ${C.line2}`, borderRadius: 16,
+        padding: 22, width: 380, maxWidth: '90vw',
+        boxShadow: '0 8px 28px rgba(0,0,0,0.5)',
       }} onClick={e => e.stopPropagation()}>
         <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 14 }}>记一笔</div>
         <div style={{ display: 'grid', gap: 10 }}>
@@ -73,9 +76,10 @@ export function QuickOpModal({ holdings, initialCode, onClose, onDone }: {
           <div style={{ display: 'flex', gap: 8 }}>
             {(['buy', 'sell'] as const).map(s => (
               <button key={s} onClick={() => setSide(s)} style={{
-                flex: 1, padding: '7px 0', borderRadius: 6, cursor: 'pointer', fontSize: 13,
-                border: `1px solid ${side === s ? (s === 'buy' ? C.up : C.down) : C.line}`,
-                background: side === s ? (s === 'buy' ? 'rgba(255,92,108,0.12)' : 'rgba(47,191,113,0.12)') : 'transparent',
+                flex: 1, padding: '7px 0', borderRadius: 999, cursor: 'pointer', fontSize: 13,
+                fontFamily: 'inherit', fontWeight: side === s ? 600 : 400,
+                border: `1px solid ${side === s ? (s === 'buy' ? C.up : C.down) : C.line2}`,
+                background: side === s ? (s === 'buy' ? '#f25a5a1f' : '#22c55e1f') : 'transparent',
                 color: side === s ? (s === 'buy' ? C.up : C.down) : C.dim,
               }}>
                 {s === 'buy' ? '买入' : '卖出'}
@@ -101,9 +105,11 @@ export function QuickOpModal({ holdings, initialCode, onClose, onDone }: {
           </label>
           {warning && (
             <div style={{
-              background: 'rgba(226,163,54,0.12)', border: `1px solid ${C.warn}`,
-              borderRadius: 8, padding: '10px 12px', fontSize: 12, color: C.warn, lineHeight: 1.6,
+              position: 'relative', overflow: 'hidden',
+              background: C.warnDim, border: `1px solid ${C.line2}`,
+              borderRadius: 8, padding: '10px 12px 10px 15px', fontSize: 12, color: C.warn, lineHeight: 1.6,
             }}>
+              <span style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: C.warn }} />
               {warning}
             </div>
           )}
@@ -112,8 +118,9 @@ export function QuickOpModal({ holdings, initialCode, onClose, onDone }: {
           )}
           <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
             <button onClick={onClose} style={{
-              flex: 1, padding: '8px 0', borderRadius: 6, cursor: 'pointer', fontSize: 13,
-              border: `1px solid ${C.line}`, background: 'transparent', color: C.dim,
+              flex: 1, padding: '8px 0', borderRadius: 8, cursor: 'pointer', fontSize: 13,
+              border: `1px solid ${C.line2}`, background: 'transparent', color: C.dim,
+              fontFamily: 'inherit',
             }}>
               取消
             </button>
@@ -121,8 +128,8 @@ export function QuickOpModal({ holdings, initialCode, onClose, onDone }: {
               disabled={busy || !code || !shares || !price}
               onClick={() => void submit(warning !== null)}
               style={{
-                flex: 2, padding: '8px 0', borderRadius: 6, cursor: 'pointer', fontSize: 13,
-                border: 'none', fontWeight: 600,
+                flex: 2, padding: '8px 0', borderRadius: 8, cursor: 'pointer', fontSize: 13,
+                border: 'none', fontWeight: 600, fontFamily: 'inherit',
                 background: side === 'buy' ? C.up : C.down,
                 color: '#fff', opacity: busy ? 0.6 : 1,
               }}

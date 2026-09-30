@@ -676,6 +676,21 @@ async def live_estimate() -> dict[str, Any]:
     return result
 
 
+async def briefing(news: list[dict[str, Any]] | None = None, greeting: str | None = None) -> dict[str, Any]:
+    """Generate the daily home-view briefing (`state/briefing.json`): major
+    index quotes (direct from the quote channel) + the news list + suggestion
+    chips, plus `state/briefing_candidates.json` with raw hotspot catalysts
+    for the agent to curate. With `news=None` an existing same-day news list
+    (agent-written) is preserved; pass `news=[...]` to write the curated list
+    back after interpreting candidates (`title/source/time/impact/funds/
+    prompt` per item)."""
+
+    def call() -> dict[str, Any]:
+        return _mod("briefing").build(news=news, greeting=greeting)
+
+    return await asyncio.to_thread(call)
+
+
 async def dashboard() -> dict[str, Any]:
     """Render the self-contained 看板 HTML (`$FINANCE_HOME/dashboard.html`, all
     data baked in, no service needed). The Finance 看板 sidebar panel and
@@ -701,6 +716,7 @@ __all__ = [
     "add_transaction",
     "agent_context",
     "analyze",
+    "briefing",
     "dashboard",
     "delete_op",
     "delete_transaction",

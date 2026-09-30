@@ -65,9 +65,26 @@ describe('finance-board host routes', () => {
     const paths = routes.map(r => `${r.kind}:${r.path}`)
     expect(paths).toContain('exact:/finance/api/status')
     expect(paths).toContain('exact:/finance/api/snapshot')
+    expect(paths).toContain('exact:/finance/api/briefing')
     expect(paths).toContain('exact:/finance/api/jobs')
     expect(paths).toContain('exact:/finance/api/ops')
+    expect(paths).toContain('exact:/terminal/app.js')
+    expect(paths).toContain('exact:/terminal/app.css')
     expect(paths).toContain('prefix:/finance')
+  })
+
+  it('briefing returns 404 when absent and the file content when present', async () => {
+    const { home, exact } = setup()
+    const missing = mockRes()
+    await exact('/finance/api/briefing').handler(mockReq('GET', '/finance/api/briefing'), missing.res)
+    expect(missing.res._status()).toBe(404)
+
+    const briefing = { date: '2026-09-30', indices: [], news: [], suggestions: [] }
+    writeFileSync(join(home, 'state', 'briefing.json'), JSON.stringify(briefing))
+    const hit = mockRes()
+    await exact('/finance/api/briefing').handler(mockReq('GET', '/finance/api/briefing'), hit.res)
+    expect(hit.res._status()).toBe(200)
+    expect(hit.json()).toEqual(briefing)
   })
 
   it('status reports missing snapshot/dashboard on an empty home', async () => {
@@ -100,7 +117,7 @@ describe('finance-board host routes', () => {
     const { res, json } = mockRes()
     await exact('/finance/api/jobs').handler(mockReq('POST', '/finance/api/jobs', { action: 'nope' }), res)
     expect(res._status()).toBe(400)
-    expect(json().actions).toEqual(['daily_job', 'refresh_dashboard', 'deep_snapshot'])
+    expect(json().actions).toEqual(['daily_job', 'refresh_dashboard', 'deep_snapshot', 'daily_briefing'])
   })
 
   it('409 when the same action is already running, otherwise 202 + status file', async () => {

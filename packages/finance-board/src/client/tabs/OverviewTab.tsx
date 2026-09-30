@@ -11,67 +11,79 @@ function Kpi({ label, value, valueColor, sub }: {
   sub?: string
 }): React.ReactElement {
   return (
-    <div style={{
-      background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10,
+    <div className="fb-kpi" style={{
+      position: 'relative', overflow: 'hidden',
+      background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12,
       padding: '12px 16px', minWidth: 140, flex: '1 1 140px',
     }}>
-      <div style={{ fontSize: 11, color: C.dim, marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 700, color: valueColor ?? C.text }}>{value}</div>
+      <div style={{ fontSize: 11, color: C.dim, marginBottom: 6, letterSpacing: '0.04em' }}>{label}</div>
+      <div className="fb-num" style={{ fontSize: 24, fontWeight: 700, color: valueColor ?? C.text, letterSpacing: '-0.01em' }}>
+        {value}
+      </div>
       {sub && <div style={{ fontSize: 11, color: C.dim, marginTop: 4 }}>{sub}</div>}
     </div>
   )
 }
 
-function FundCard({ fund }: { fund: FundInfo }): React.ReactElement {
+function FundCard({ fund, onFundClick }: {
+  fund: FundInfo
+  onFundClick?: (code: string) => void
+}): React.ReactElement {
   const navSeries = fund.nav_tail
     ? Object.entries(fund.nav_tail).sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([, v]) => v)
     : []
   const dev = fund.pred_ret
   const hit = fund.accuracy.hit_rate
+  const clickable = onFundClick !== undefined
   return (
-    <div style={{
-      background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10,
-      padding: '12px 14px', minWidth: 240, flex: '1 1 240px',
-    }}>
+    <div
+      className={clickable ? 'fb-card hoverable fb-fade-up' : 'fb-card fb-fade-up'}
+      onClick={clickable ? () => onFundClick(fund.code) : undefined}
+      title={clickable ? '点击下钻到基金详情' : undefined}
+      style={{
+        background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12,
+        padding: '12px 14px', minWidth: 240, flex: '1 1 240px',
+        cursor: clickable ? 'pointer' : undefined,
+      }}
+    >
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
         <strong style={{ fontSize: 14 }}>{fund.name}</strong>
         <span style={{ fontSize: 11, color: C.dim }}>{fund.code}</span>
         <span style={{ flex: 1 }} />
-        {fund.pred_label && (
-          <span style={{ fontSize: 11, color: C.accent }}>{fund.pred_label}</span>
-        )}
+        {fund.pred_label && <span className="fb-chip fb-chip-brand">{fund.pred_label}</span>}
       </div>
       <div style={{ display: 'flex', gap: 18, marginTop: 8, fontSize: 12, color: C.dim, flexWrap: 'wrap' }}>
-        <span>净值 <b style={{ color: C.text }}>{fund.official_nav ?? '—'}</b>{fund.official_date ? ` (${fund.official_date})` : ''}</span>
-        <span>预测 <b style={{ color: pnlColor(dev ?? null) }}>{fmtPct(dev)}</b>{fund.pred_nav != null ? ` → ${fund.pred_nav}` : ''}</span>
+        <span>净值 <b className="fb-num" style={{ color: C.text }}>{fund.official_nav ?? '—'}</b>{fund.official_date ? ` (${fund.official_date})` : ''}</span>
+        <span>预测 <b className="fb-num" style={{ color: pnlColor(dev ?? null) }}>{fmtPct(dev)}</b>{fund.pred_nav != null ? ` → ${fund.pred_nav}` : ''}</span>
         {fund.intraday && (
           <span title={fund.intraday.note}>
-            盘中估算 <b style={{ color: pnlColor(fund.intraday.estRet) }}>{fmtPct(fund.intraday.estRet)}</b>
+            盘中估算 <b className="fb-num" style={{ color: pnlColor(fund.intraday.estRet) }}>{fmtPct(fund.intraday.estRet)}</b>
             {` → ${fund.intraday.estNav}`}
           </span>
         )}
         <span>R² {fund.r2 ?? '—'}</span>
-        {hit != null && <span>命中 <b style={{ color: C.text }}>{hit}%</b>（{fund.accuracy.n} 次）</span>}
+        {hit != null && <span>命中 <b className="fb-num" style={{ color: C.text }}>{hit}%</b>（{fund.accuracy.n} 次）</span>}
       </div>
       {navSeries.length >= 2 && (
         <div style={{ marginTop: 8 }}><LineChart values={navSeries} height={56} /></div>
       )}
       {fund.signals && (
-        <div style={{ display: 'flex', gap: 12, marginTop: 6, fontSize: 11, color: C.dim }}>
-          <span style={{ color: fund.signals.above_ma20 ? C.up : C.down }}>
+        <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+          <span className={fund.signals.above_ma20 ? 'fb-chip fb-chip-up' : 'fb-chip fb-chip-down'}>
             MA20 {fund.signals.above_ma20 ? '上' : '下'}
           </span>
-          <span style={{ color: fund.signals.below_trough ? C.up : C.dim }}>
-            {fund.signals.below_trough ? '跌破前低' : '未破前低'}
-          </span>
-          <span>距高点 {fmtSigned(fund.signals.dd_from_ath, 1)}%</span>
+          {fund.signals.below_trough && <span className="fb-chip fb-chip-warn">跌破前低</span>}
+          <span className="fb-chip fb-chip-plain">距高点 {fmtSigned(fund.signals.dd_from_ath, 1)}%</span>
         </div>
       )}
     </div>
   )
 }
 
-export function OverviewTab({ snapshot }: { snapshot: Snapshot }): React.ReactElement {
+export function OverviewTab({ snapshot, onFundClick }: {
+  snapshot: Snapshot
+  onFundClick?: (code: string) => void
+}): React.ReactElement {
   const { summary, meta, funds, accuracy, hotspot } = snapshot
   const pending = meta.pending_artifact
 
@@ -97,9 +109,11 @@ export function OverviewTab({ snapshot }: { snapshot: Snapshot }): React.ReactEl
 
       {pending && (
         <div style={{
-          background: 'rgba(226,163,54,0.10)', border: `1px solid ${C.warn}`,
-          borderRadius: 10, padding: '12px 16px', fontSize: 13, color: C.warn, lineHeight: 1.7,
+          position: 'relative', overflow: 'hidden',
+          background: C.warnDim, border: `1px solid ${C.line}`,
+          borderRadius: 8, padding: '10px 14px 10px 17px', fontSize: 13, color: C.warn, lineHeight: 1.7,
         }}>
+          <span style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: C.warn }} />
           预测数据尚未生成。让 agent 先 <code>register_fund</code> 再 <code>run_daily_job()</code>，
           或直接点上方「生成日报」按钮。
         </div>
@@ -107,7 +121,7 @@ export function OverviewTab({ snapshot }: { snapshot: Snapshot }): React.ReactEl
 
       {hotspot.data && (
         <div style={{
-          background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, padding: '12px 16px',
+          background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: '12px 16px',
           fontSize: 12, color: C.dim, lineHeight: 1.8,
         }}>
           <b style={{ color: C.text }}>市场归因</b> · {hotspot.data.generated_at}
@@ -119,7 +133,7 @@ export function OverviewTab({ snapshot }: { snapshot: Snapshot }): React.ReactEl
         <h3 style={{ fontSize: 13, color: C.dim, margin: '0 0 10px', fontWeight: 600 }}>基金预测</h3>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           {funds.length === 0 && <span style={{ color: C.dim, fontSize: 13 }}>暂无基金数据</span>}
-          {funds.map(f => <FundCard key={f.code} fund={f} />)}
+          {funds.map(f => <FundCard key={f.code} fund={f} onFundClick={onFundClick} />)}
         </div>
       </section>
 
@@ -134,7 +148,7 @@ export function OverviewTab({ snapshot }: { snapshot: Snapshot }): React.ReactEl
                   <span style={{ color: C.dim, width: 90 }}>{r.navDate}</span>
                   <span style={{ width: 110, color: C.text }}>{r.code}</span>
                   <BarRow label="" value={r.dev ?? 0} maxAbs={maxAbs} />
-                  <span style={{ color: pnlColor(r.dev), width: 70, textAlign: 'right' }}>
+                  <span className="fb-num" style={{ color: pnlColor(r.dev), width: 70, textAlign: 'right' }}>
                     {fmtSigned(r.dev)}%
                   </span>
                   <span style={{ color: C.dim }}>预测 {fmtPct(r.predRet)} / 实际 {fmtPct(r.actualRet)}</span>

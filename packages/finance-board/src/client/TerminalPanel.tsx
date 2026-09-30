@@ -2,6 +2,11 @@
  * Finance 终端 main panel: tab bar + quick-action toolbar over the live
  * snapshot. Polls `/finance/api/status` every 5s and reloads the snapshot
  * only when its mtime changed, so scroll state survives refreshes.
+ *
+ * This component is shared by two hosts: the new terminal UI (src/terminal/,
+ * terminal.css loaded — fb-* classes resolve) and the legacy client bundle
+ * injected into the official SPA sidebar (no terminal.css — inline fallbacks
+ * carry the same dsw values). Keep base styles inline; classes only enhance.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -16,9 +21,9 @@ import { HotspotsTab } from './tabs/HotspotsTab.js'
 import { OpsTab } from './tabs/OpsTab.js'
 import { C, fmtDateTime } from './format.js'
 
-type Tab = 'overview' | 'holdings' | 'hotspots' | 'ops'
+export type BoardTab = 'overview' | 'holdings' | 'hotspots' | 'ops'
 
-const TABS: { key: Tab; label: string }[] = [
+const TABS: { key: BoardTab; label: string }[] = [
   { key: 'overview', label: '总览' },
   { key: 'holdings', label: '持仓' },
   { key: 'hotspots', label: '热点' },
@@ -29,10 +34,24 @@ const JOB_LABELS: Record<string, string> = {
   daily_job: '每日流水线',
   refresh_dashboard: '刷新看板',
   deep_snapshot: '深度快照（含行业穿透）',
+  daily_briefing: '每日简报',
 }
 
-export function TerminalPanel(): React.ReactElement {
-  const [tab, setTab] = useState<Tab>('overview')
+const GRAD = 'linear-gradient(135deg,#5686fe,#7aaaff)'
+
+export function TerminalPanel({ tab: tabProp, onTabChange, onFundClick }: {
+  /** Controlled tab (optional — defaults to internal state). */
+  tab?: BoardTab
+  onTabChange?: (tab: BoardTab) => void
+  /** 基金卡/持仓行点击 → 上层切到下钻视图。缺省时卡片不可点。 */
+  onFundClick?: (code: string) => void
+} = {}): React.ReactElement {
+  const [tabInternal, setTabInternal] = useState<BoardTab>(tabProp ?? 'overview')
+  const tab = tabProp ?? tabInternal
+  const setTab = (t: BoardTab): void => {
+    setTabInternal(t)
+    onTabChange?.(t)
+  }
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [updatedAt, setUpdatedAt] = useState<string | null>(null)
@@ -131,6 +150,17 @@ export function TerminalPanel(): React.ReactElement {
   }
   const failedJob = [...latestByAction.values()].find(j => j.status === 'error')
 
+  const primaryBtn = (running: boolean): React.CSSProperties => ({
+    border: 'none', borderRadius: 8, background: GRAD, color: '#fff',
+    padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: running ? 'not-allowed' : 'pointer',
+    opacity: running ? 0.55 : 1, fontFamily: 'inherit', whiteSpace: 'nowrap',
+  })
+  const ghostBtn: React.CSSProperties = {
+    border: `1px solid ${C.line2}`, borderRadius: 8, background: 'transparent',
+    color: C.text, padding: '6px 14px', fontSize: 12, cursor: 'pointer',
+    fontFamily: 'inherit', whiteSpace: 'nowrap',
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: C.bg, color: C.text }}>
       <div style={{
@@ -142,48 +172,60 @@ export function TerminalPanel(): React.ReactElement {
           {updatedAt ? `数据更新于 ${fmtDateTime(updatedAt)}` : snapshot ? '等待首次生成' : ''}
         </span>
         <span style={{ flex: 1 }} />
-        <button style={actionBtn} disabled={actionRunning('daily_job')} onClick={() => void runJob('daily_job')}>
+        <button style={primaryBtn(actionRunning('daily_job'))} disabled={actionRunning('daily_job')}
+          onClick={() => void runJob('daily_job')}>
           {actionRunning('daily_job') ? '运行中…' : '生成日报'}
         </button>
-        <button style={actionBtn} disabled={actionRunning('deep_snapshot')} onClick={() => void runJob('deep_snapshot')}>
+        <button style={{ ...ghostBtn, opacity: actionRunning('deep_snapshot') ? 0.55 : 1 }}
+          disabled={actionRunning('deep_snapshot')} onClick={() => void runJob('deep_snapshot')}>
           {actionRunning('deep_snapshot') ? '运行中…' : '深度快照'}
         </button>
-        <button style={actionBtn} onClick={() => setQuickOp(snapshot?.holdings[0]?.code ?? '')}>
+        <button style={ghostBtn} onClick={() => setQuickOp(snapshot?.holdings[0]?.code ?? '')}>
           记一笔
         </button>
       </div>
 
       <div style={{
-        display: 'flex', gap: 2, padding: '0 12px', borderBottom: `1px solid ${C.line}`,
+        display: 'flex', gap: 2, padding: '0 16px', borderBottom: `1px solid ${C.line}`,
         flexShrink: 0, overflowX: 'auto',
       }}>
         {TABS.map(t => (
           <button key={t.key} onClick={() => setTab(t.key)} style={{
-            background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 13,
-            padding: '9px 14px', color: tab === t.key ? C.accent : C.dim,
-            borderBottom: tab === t.key ? `2px solid ${C.accent}` : '2px solid transparent',
+            position: 'relative', background: 'transparent', border: 'none', cursor: 'pointer',
+            fontSize: 13, padding: '10px 4px', marginRight: 20, fontFamily: 'inherit',
+            color: tab === t.key ? C.text : C.dim,
             fontWeight: tab === t.key ? 600 : 400, whiteSpace: 'nowrap',
           }}>
             {t.label}
+            {tab === t.key && (
+              <span style={{
+                position: 'absolute', left: 0, right: 0, bottom: -1, height: 2,
+                borderRadius: 2, background: GRAD,
+              }} />
+            )}
           </button>
         ))}
       </div>
 
       {(runningJob || failedJob || jobError) && (
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 10, padding: '6px 16px',
-          fontSize: 12, flexShrink: 0,
-          background: failedJob || jobError ? 'rgba(255,92,108,0.10)' : 'rgba(77,159,255,0.08)',
+          position: 'relative', display: 'flex', alignItems: 'center', gap: 10,
+          padding: '8px 16px 8px 19px', fontSize: 12, flexShrink: 0,
+          background: failedJob || jobError ? C.upDim : C.accentDim,
           borderBottom: `1px solid ${C.line}`,
-          color: failedJob || jobError ? C.up : C.accent,
+          color: failedJob || jobError ? C.up : C.accentHi,
         }}>
+          <span style={{
+            position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
+            background: failedJob || jobError ? C.up : C.accent,
+          }} />
           {runningJob && <span>⏳ {JOB_LABELS[runningJob.action] ?? runningJob.action} 运行中…</span>}
           {failedJob && <span>✗ {JOB_LABELS[failedJob.action]} 失败：{failedJob.error ?? '未知错误'}</span>}
           {jobError && <span>✗ {jobError}</span>}
           <span style={{ flex: 1 }} />
           {(failedJob || jobError) && (
             <button onClick={() => { setJobError(null); void runJob((failedJob?.action as JobAction | undefined) ?? 'refresh_dashboard') }}
-              style={{ ...actionBtn, fontSize: 11 }}>
+              style={{ ...ghostBtn, fontSize: 11, padding: '3px 10px' }}>
               重试
             </button>
           )}
@@ -192,7 +234,24 @@ export function TerminalPanel(): React.ReactElement {
 
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {!loaded ? (
-          <div style={{ padding: 48, textAlign: 'center', color: C.dim }}>加载中…</div>
+          <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              {[0, 1, 2, 3].map(i => (
+                <div key={i} className="fb-skeleton" style={{
+                  height: 76, flex: '1 1 140px', minWidth: 140, borderRadius: 12,
+                  background: 'var(--fb-skeleton, #ffffff14)',
+                }} />
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              {[0, 1, 2, 3, 4, 5].map(i => (
+                <div key={i} className="fb-skeleton" style={{
+                  height: 150, flex: '1 1 240px', minWidth: 240, borderRadius: 12,
+                  background: 'var(--fb-skeleton, #ffffff14)',
+                }} />
+              ))}
+            </div>
+          </div>
         ) : !snapshot ? (
           <div style={{ margin: '80px auto', maxWidth: 520, padding: '0 24px', lineHeight: 1.9, fontSize: 13 }}>
             <h2 style={{ fontSize: 18 }}>Finance 终端尚未初始化</h2>
@@ -203,15 +262,15 @@ export function TerminalPanel(): React.ReactElement {
             <pre style={{ background: C.panel, padding: 12, borderRadius: 8, fontSize: 12 }}>
               {'import finance\nawait finance.set_holding("008401", shares=1000, cost_amount=1234.5)\npath = await finance.run_daily_job()'}
             </pre>
-            <button style={{ ...actionBtn, padding: '8px 20px' }} onClick={() => void runJob('daily_job')}>
+            <button style={{ ...primaryBtn(false), padding: '8px 20px' }} onClick={() => void runJob('daily_job')}>
               启动每日流水线
             </button>
           </div>
         ) : (
           <>
-            {tab === 'overview' && <OverviewTab snapshot={snapshot} />}
+            {tab === 'overview' && <OverviewTab snapshot={snapshot} onFundClick={onFundClick} />}
             {tab === 'holdings' && (
-              <HoldingsTab snapshot={snapshot} onQuickOp={code => setQuickOp(code)} />
+              <HoldingsTab snapshot={snapshot} onQuickOp={code => setQuickOp(code)} onFundClick={onFundClick} />
             )}
             {tab === 'hotspots' && <HotspotsTab snapshot={snapshot} />}
             {tab === 'ops' && <OpsTab snapshot={snapshot} />}
@@ -233,19 +292,15 @@ export function TerminalPanel(): React.ReactElement {
       )}
 
       {toast && (
-        <div style={{
-          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
-          background: C.panel, border: `1px solid ${C.accent}`, borderRadius: 8,
-          padding: '8px 18px', fontSize: 13, zIndex: 1001, color: C.text,
+        <div className="fb-toast" style={{
+          position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',
+          background: 'rgba(44,44,46,0.85)', border: `1px solid ${C.line2}`, borderRadius: 999,
+          padding: '10px 18px', fontSize: 13, zIndex: 1200, color: C.text,
+          backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
         }}>
           {toast}
         </div>
       )}
     </div>
   )
-}
-
-const actionBtn: React.CSSProperties = {
-  border: `1px solid ${C.line}`, borderRadius: 6, background: 'transparent',
-  color: C.text, padding: '4px 12px', fontSize: 12, cursor: 'pointer',
 }

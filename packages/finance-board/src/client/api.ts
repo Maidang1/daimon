@@ -184,7 +184,40 @@ export interface OpsResponse {
   error?: string
 }
 
-export type JobAction = 'daily_job' | 'refresh_dashboard' | 'deep_snapshot'
+export type JobAction = 'daily_job' | 'refresh_dashboard' | 'deep_snapshot' | 'daily_briefing'
+
+/* ---------- 每日简报（agent 生成，briefing.json） ---------- */
+
+export interface BriefingIndex {
+  name: string
+  value: number
+  pct: number
+}
+
+export interface BriefingNews {
+  title: string
+  source?: string
+  time?: string
+  impact?: 'bullish' | 'watch' | 'bearish'
+  funds?: string[]
+  prompt: string
+}
+
+export interface Briefing {
+  date: string
+  greeting?: string
+  indices: BriefingIndex[]
+  news: BriefingNews[]
+  suggestions?: string[]
+}
+
+/** 404 → null（简报未生成，前端降级）。 */
+export async function fetchBriefing(): Promise<Briefing | null> {
+  const res = await fetch(`/finance/api/briefing?_=${Date.now()}`)
+  if (res.status === 404) return null
+  if (!res.ok) throw new Error(`/finance/api/briefing → ${res.status}`)
+  return (await res.json()) as Briefing
+}
 
 async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url)

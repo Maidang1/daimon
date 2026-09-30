@@ -5,17 +5,17 @@ import { HeatBar } from '../charts.js'
 import { C, fmtAge, fmtPct, fmtSigned, pnlColor } from '../format.js'
 
 function ThemeCard({ theme }: { theme: HotspotTheme }): React.ReactElement {
-  const bandColor = theme.band === '热' ? C.up : theme.band === '温' ? C.warn : C.down
+  const bandCls = theme.band === '热' ? 'fb-chip fb-chip-up' : theme.band === '温' ? 'fb-chip fb-chip-warn' : 'fb-chip fb-chip-down'
   return (
-    <div style={{
-      background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10,
+    <div className="fb-card" style={{
+      background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12,
       padding: '12px 14px', minWidth: 260, flex: '1 1 260px', fontSize: 12,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <strong style={{ fontSize: 14 }}>{theme.name}</strong>
         <span style={{ fontSize: 11, color: C.dim }}>{theme.market}</span>
         <span style={{ flex: 1 }} />
-        <span style={{ color: bandColor, fontWeight: 600 }}>{theme.band} {theme.heat}</span>
+        <span className={bandCls}>{theme.band} {theme.heat}</span>
       </div>
       <div style={{ margin: '6px 0' }}><HeatBar pct={theme.heat} width={180} /></div>
       <div style={{ display: 'flex', gap: 14, color: C.dim, flexWrap: 'wrap' }}>
@@ -61,8 +61,8 @@ export function HotspotsTab({ snapshot }: { snapshot: Snapshot }): React.ReactEl
   const { market, themes, top_picks: topPicks } = hotspot.data
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '16px 20px' }}>
-      <div style={{
-        background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, padding: '12px 16px',
+      <div className="fb-card" style={{
+        background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: '12px 16px',
       }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'baseline' }}>
           <strong style={{ fontSize: 14 }}>市场情景：{market.regime}</strong>

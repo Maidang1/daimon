@@ -13,16 +13,16 @@ export function OpsTab({ snapshot }: { snapshot: Snapshot }): React.ReactElement
     )
   }
   const th: React.CSSProperties = {
-    textAlign: 'right', padding: '6px 10px', fontSize: 11, color: C.dim, fontWeight: 500,
-    borderBottom: `1px solid ${C.line}`,
+    textAlign: 'right', padding: '8px 10px', fontSize: 11, color: C.faint, fontWeight: 500,
+    borderBottom: `1px solid ${C.line2}`,
   }
   const td: React.CSSProperties = {
-    textAlign: 'right', padding: '7px 10px', fontSize: 12, color: C.text,
+    textAlign: 'right', padding: '8px 10px', fontSize: 12, color: C.text,
     borderBottom: `1px solid ${C.line}`, whiteSpace: 'nowrap',
   }
   return (
     <div style={{ padding: '16px 20px', overflowX: 'auto' }}>
-      <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+      <table className="fb-table" style={{ borderCollapse: 'collapse', width: '100%' }}>
         <thead>
           <tr>
             <th style={{ ...th, textAlign: 'left' }}>日期</th>

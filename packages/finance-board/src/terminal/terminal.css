@@ -1,0 +1,598 @@
+/* finance-board 终端全局样式 —— dsw 暗色 token 对齐（值抄自 dsh-client-ui-theme 0.1.7-rc.2）
+ *
+ * 前缀 --fb-。该文件只被 src/terminal/ 的新 UI 加载；旧 client bundle
+ * （src/client/index.tsx → 注入官方 SPA 侧栏）不加载本文件，依赖 format.ts
+ * 里 var(--fb-*, fallback) 的 fallback 拿到同一套色值。
+ */
+
+:root {
+  /* 背景 */
+  --fb-bg-0: #151517;
+  --fb-bg-1: #232324;
+  --fb-bg-2: #2c2c2e;
+  --fb-bg-3: #353638;
+  /* 描边 */
+  --fb-line-1: #ffffff0f;
+  --fb-line-2: #ffffff1f;
+  --fb-line-3: #ffffff29;
+  /* 文字 */
+  --fb-text-1: #f9fafb;
+  --fb-text-2: #cfd3d6;
+  --fb-text-3: #adb2b8;
+  --fb-text-4: #81858c;
+  /* 品牌 */
+  --fb-brand: #5686fe;
+  --fb-brand-hi: #7aaaff;
+  --fb-brand-deep: #4176e6;
+  --fb-brand-dim: #5686fe24;
+  --fb-grad: linear-gradient(135deg, #5686fe, #7aaaff);
+  /* 语义（CN 涨跌：红涨绿跌，只借色值不借语义） */
+  --fb-up: #f25a5a;
+  --fb-up-dim: #f25a5a1f;
+  --fb-down: #22c55e;
+  --fb-down-dim: #22c55e1f;
+  --fb-warn: #f59e0b;
+  --fb-warn-dim: #f59e0b1f;
+  --fb-skeleton: #ffffff14;
+  --fb-hover: #ffffff14;
+  /* 圆角 */
+  --fb-r-sm: 8px;
+  --fb-r-md: 12px;
+  --fb-r-lg: 16px;
+  --fb-r-pill: 999px;
+  /* 阴影 */
+  --fb-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --fb-shadow-2: 0 8px 28px rgba(0, 0, 0, 0.5);
+  --fb-glow: 0 0 0 1px #5686fe4d, 0 4px 24px #5686fe26;
+  /* 字体 */
+  --fb-font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --fb-font-brand: "Montserrat", var(--fb-font-ui);
+  --fb-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--fb-bg-0);
+  color: var(--fb-text-1);
+  font-family: var(--fb-font-ui);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root { height: 100%; }
+
+/* ---------- keyframes ---------- */
+
+@keyframes fb-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+@keyframes fb-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5); opacity: 1; }
+  50% { box-shadow: 0 0 0 4px rgba(34, 197, 94, 0); opacity: 0.7; }
+}
+
+@keyframes fb-dot {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40% { transform: translateY(-4px); opacity: 1; }
+}
+
+@keyframes fb-shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+}
+
+@keyframes fb-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fb-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes fb-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* ---------- 基础工具 ---------- */
+
+.fb-num { font-variant-numeric: tabular-nums; }
+.fb-mono { font-family: var(--fb-font-mono); }
+
+.fb-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.fb-scroll::-webkit-scrollbar-thumb {
+  background: var(--fb-line-3);
+  border-radius: 4px;
+}
+.fb-scroll::-webkit-scrollbar-thumb:hover { background: var(--fb-text-4); }
+.fb-scroll::-webkit-scrollbar-track { background: transparent; }
+
+.fb-fade-up { animation: fb-fade-up 0.35s ease both; }
+
+.fb-link {
+  color: var(--fb-brand-hi);
+  text-decoration: none;
+  cursor: pointer;
+}
+.fb-link:hover { text-decoration: underline; }
+
+/* ---------- 品牌标识 ---------- */
+
+.fb-logo {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--fb-grad);
+  box-shadow: var(--fb-shadow-1);
+  flex-shrink: 0;
+}
+
+.fb-wordmark {
+  font-family: var(--fb-font-brand);
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: 0.02em;
+  background: var(--fb-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ---------- 状态 pill / 连接点 ---------- */
+
+.fb-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: var(--fb-r-pill);
+  font-size: 11px;
+  color: var(--fb-text-3);
+  background: var(--fb-bg-2);
+  border: 1px solid var(--fb-line-1);
+}
+
+.fb-conn-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.fb-conn-dot.open { background: var(--fb-down); animation: fb-breathe 2.4s ease-in-out infinite; }
+.fb-conn-dot.connecting { background: var(--fb-warn); animation: fb-pulse 1.2s ease-in-out infinite; }
+.fb-conn-dot.closed { background: var(--fb-text-4); }
+
+/* ---------- 分段切换器 ---------- */
+
+.fb-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--fb-r-pill);
+  background: var(--fb-bg-2);
+  border: 1px solid var(--fb-line-1);
+}
+
+.fb-seg-item {
+  border: none;
+  background: transparent;
+  color: var(--fb-text-3);
+  font-size: 12px;
+  font-family: var(--fb-font-ui);
+  padding: 4px 12px;
+  border-radius: var(--fb-r-pill);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.fb-seg-item:hover { color: var(--fb-text-2); }
+.fb-seg-item.active { background: var(--fb-bg-3); color: var(--fb-text-1); }
+
+/* ---------- 按钮 ---------- */
+
+.fb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: var(--fb-r-sm);
+  font-size: 12px;
+  font-family: var(--fb-font-ui);
+  font-weight: 500;
+  padding: 7px 14px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s, transform 0.1s;
+  white-space: nowrap;
+}
+.fb-btn:active { transform: translateY(0.5px); }
+.fb-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.fb-btn-primary {
+  background: var(--fb-grad);
+  color: #fff;
+  box-shadow: var(--fb-shadow-1);
+}
+.fb-btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
+
+.fb-btn-ghost {
+  background: transparent;
+  border-color: var(--fb-line-2);
+  color: var(--fb-text-2);
+}
+.fb-btn-ghost:hover:not(:disabled) { background: var(--fb-hover); border-color: var(--fb-line-3); }
+
+.fb-btn-danger {
+  background: transparent;
+  border-color: var(--fb-line-2);
+  color: var(--fb-up);
+}
+.fb-btn-danger:hover:not(:disabled) { background: var(--fb-up-dim); }
+
+/* 三点思考/加载动画 */
+.fb-dots { display: inline-flex; gap: 3px; align-items: center; }
+.fb-dots > span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: fb-dot 1.2s ease-in-out infinite;
+}
+.fb-dots > span:nth-child(2) { animation-delay: 0.15s; }
+.fb-dots > span:nth-child(3) { animation-delay: 0.3s; }
+
+/* ---------- 页签（渐变指示条） ---------- */
+
+.fb-tab {
+  position: relative;
+  border: none;
+  background: transparent;
+  color: var(--fb-text-3);
+  font-size: 13px;
+  font-family: var(--fb-font-ui);
+  font-weight: 500;
+  padding: 10px 4px;
+  margin-right: 20px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.fb-tab:hover { color: var(--fb-text-2); }
+.fb-tab.active { color: var(--fb-text-1); }
+.fb-tab.active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--fb-grad);
+}
+
+/* ---------- 卡片 / KPI ---------- */
+
+.fb-card {
+  background: var(--fb-bg-2);
+  border: 1px solid var(--fb-line-1);
+  border-radius: var(--fb-r-md);
+  box-shadow: var(--fb-shadow-1);
+}
+
+.fb-card.hoverable {
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+.fb-card.hoverable:hover {
+  border-color: var(--fb-line-2);
+  transform: translateY(-1px);
+  box-shadow: var(--fb-shadow-2);
+}
+
+.fb-kpi {
+  position: relative;
+  overflow: hidden;
+  background: var(--fb-bg-2);
+  border: 1px solid var(--fb-line-1);
+  border-radius: var(--fb-r-md);
+  box-shadow: var(--fb-shadow-1);
+}
+.fb-kpi::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--fb-grad);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.fb-kpi:hover::before,
+.fb-kpi.accent::before { opacity: 1; }
+
+/* ---------- chip / 徽章 ---------- */
+
+.fb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--fb-r-pill);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.fb-chip-brand { background: var(--fb-brand-dim); color: var(--fb-brand-hi); }
+.fb-chip-up { background: var(--fb-up-dim); color: var(--fb-up); }
+.fb-chip-down { background: var(--fb-down-dim); color: var(--fb-down); }
+.fb-chip-warn { background: var(--fb-warn-dim); color: var(--fb-warn); }
+.fb-chip-plain { background: var(--fb-bg-3); color: var(--fb-text-3); }
+
+/* 可点建议 chip */
+.fb-suggest {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: var(--fb-r-pill);
+  font-size: 12px;
+  color: var(--fb-text-2);
+  background: var(--fb-bg-2);
+  border: 1px solid var(--fb-line-1);
+  cursor: pointer;
+  font-family: var(--fb-font-ui);
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.fb-suggest:hover {
+  border-color: var(--fb-brand);
+  color: var(--fb-text-1);
+  background: var(--fb-brand-dim);
+}
+
+/* ---------- 表格 ---------- */
+
+.fb-table { border-collapse: collapse; width: 100%; }
+.fb-table th {
+  text-align: right;
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--fb-text-4);
+  font-weight: 500;
+  border-bottom: 1px solid var(--fb-line-2);
+  white-space: nowrap;
+}
+.fb-table td {
+  text-align: right;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--fb-text-1);
+  border-bottom: 1px solid var(--fb-line-1);
+  white-space: nowrap;
+}
+.fb-table tbody tr { transition: background 0.12s; }
+.fb-table tbody tr:hover { background: var(--fb-bg-2); }
+
+/* ---------- 横幅 / toast / 骨架屏 ---------- */
+
+.fb-banner {
+  position: relative;
+  border: 1px solid var(--fb-line-1);
+  border-radius: var(--fb-r-sm);
+  padding: 10px 14px 10px 17px;
+  font-size: 12px;
+  line-height: 1.7;
+  overflow: hidden;
+}
+.fb-banner::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+}
+.fb-banner.info { background: var(--fb-brand-dim); color: var(--fb-text-2); }
+.fb-banner.info::before { background: var(--fb-brand); }
+.fb-banner.warn { background: var(--fb-warn-dim); color: var(--fb-warn); }
+.fb-banner.warn::before { background: var(--fb-warn); }
+.fb-banner.error { background: var(--fb-up-dim); color: var(--fb-up); }
+.fb-banner.error::before { background: var(--fb-up); }
+
+.fb-toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 18px;
+  border-radius: var(--fb-r-pill);
+  font-size: 13px;
+  color: var(--fb-text-1);
+  background: rgba(44, 44, 46, 0.82);
+  border: 1px solid var(--fb-line-2);
+  box-shadow: var(--fb-shadow-2);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 1200;
+  animation: fb-fade-up 0.25s ease both;
+}
+
+.fb-skeleton {
+  border-radius: var(--fb-r-sm);
+  background: linear-gradient(90deg, var(--fb-skeleton) 25%, #ffffff1f 50%, var(--fb-skeleton) 75%);
+  background-size: 200px 100%;
+  animation: fb-shimmer 1.4s infinite;
+}
+
+/* ---------- 聊天 ---------- */
+
+.fb-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--fb-grad);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  flex-shrink: 0;
+  box-shadow: var(--fb-shadow-1);
+}
+
+.fb-user-bubble {
+  background: var(--fb-brand-dim);
+  border: 1px solid #5686fe33;
+  border-radius: var(--fb-r-lg);
+  padding: 9px 14px;
+  max-width: 78%;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--fb-text-1);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.fb-cursor {
+  color: var(--fb-brand);
+  animation: fb-blink 1s step-end infinite;
+  font-weight: 400;
+}
+
+.fb-spinner {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid var(--fb-brand-dim);
+  border-top-color: var(--fb-brand);
+  animation: fb-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+/* 工具卡：左侧状态色条 */
+.fb-tool-card {
+  position: relative;
+  background: var(--fb-bg-1);
+  border: 1px solid var(--fb-line-1);
+  border-radius: var(--fb-r-sm);
+  overflow: hidden;
+  font-size: 12px;
+}
+.fb-tool-card .bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+}
+.fb-tool-card.running .bar { background: var(--fb-brand); animation: fb-pulse 1.4s ease-in-out infinite; }
+.fb-tool-card.done .bar { background: var(--fb-down); }
+.fb-tool-card.error .bar { background: var(--fb-up); }
+
+/* ---------- 输入区（composer） ---------- */
+
+.fb-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  background: var(--fb-bg-2);
+  border: 1px solid var(--fb-line-2);
+  border-radius: var(--fb-r-lg);
+  padding: 12px 14px;
+  transition: border-color 0.15s, box-shadow 0.2s;
+}
+.fb-composer:focus-within {
+  border-color: var(--fb-brand);
+  box-shadow: var(--fb-glow);
+}
+.fb-composer textarea {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  color: var(--fb-text-1);
+  font-family: var(--fb-font-ui);
+  font-size: 14px;
+  line-height: 1.6;
+  max-height: 160px;
+}
+.fb-composer textarea::placeholder { color: var(--fb-text-4); }
+
+.fb-send {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: var(--fb-grad);
+  color: #fff;
+  font-size: 15px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: var(--fb-shadow-1);
+  transition: filter 0.15s, opacity 0.15s;
+}
+.fb-send:hover:not(:disabled) { filter: brightness(1.1); }
+.fb-send:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* 审批 / 提问横幅（毛玻璃） */
+.fb-approval {
+  border: 1px solid var(--fb-line-2);
+  border-radius: var(--fb-r-md);
+  background: rgba(44, 44, 46, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding: 12px 14px;
+  font-size: 12px;
+  box-shadow: var(--fb-shadow-2);
+  position: relative;
+  overflow: hidden;
+}
+.fb-approval::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--fb-grad);
+}
+
+/* 聊天空态 logo（呼吸） */
+.fb-empty-logo {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: var(--fb-grad);
+  box-shadow: 0 0 40px #5686fe40;
+  animation: fb-pulse 3.2s ease-in-out infinite;
+}
+
+/* ---------- 通用输入 ---------- */
+
+.fb-input, .fb-select {
+  background: var(--fb-bg-3);
+  border: 1px solid var(--fb-line-2);
+  border-radius: var(--fb-r-sm);
+  color: var(--fb-text-1);
+  padding: 7px 10px;
+  font-size: 13px;
+  font-family: var(--fb-font-ui);
+  width: 100%;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.fb-input:focus, .fb-select:focus {
+  border-color: var(--fb-brand);
+  box-shadow: var(--fb-glow);
+}

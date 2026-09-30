@@ -70,6 +70,10 @@ const JOB_ACTIONS: Record<string, string> = {
   refresh_dashboard: 'asyncio.run(finance.live_estimate()); result = asyncio.run(finance.dashboard())',
   /** Rebuild the UI snapshot including sector look-through (slow on cold cache). */
   deep_snapshot: 'result = asyncio.run(finance.ui_snapshot(include_lookthrough=True))',
+  /** Daily AI briefing for the home view: index quotes + holding-related news
+   * candidates, written to state/briefing.json. The agent curates/interprets
+   * the news in the heartbeat task; this action regenerates the raw briefing. */
+  daily_briefing: 'result = asyncio.run(finance.briefing())',
 }
 
 /**
@@ -258,6 +262,19 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
   })
 
+  ctx.webServer.register({
+    kind: 'exact',
+    path: '/terminal/app.css',
+    handler: async (req, res) => {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { 'content-type': 'text/plain; charset=utf-8' })
+        res.end('method not allowed')
+        return
+      }
+      await serveTerminalAsset(res, 'app.css', 'text/css; charset=utf-8')
+    },
+  })
+
   const runnerEnv = {
     ...process.env,
     FINANCE_HOME: financeHome,
@@ -335,15 +352,42 @@ export function apply(ctx: Context, config: Config = {}): void {
         res.end('method not allowed')
         return
       }
+      let body: string
       try {
-        res.writeHead(200, {
-          'content-type': 'application/json; charset=utf-8',
-          'cache-control': 'no-cache',
-        })
-        res.end(await readFile(snapshotPath, 'utf-8'))
+        body = await readFile(snapshotPath, 'utf-8')
       } catch {
         sendJson(res, 404, { exists: false })
+        return
       }
+      res.writeHead(200, {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-cache',
+      })
+      res.end(body)
+    },
+  })
+
+  ctx.webServer.register({
+    kind: 'exact',
+    path: '/finance/api/briefing',
+    handler: async (req, res) => {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { 'content-type': 'text/plain; charset=utf-8' })
+        res.end('method not allowed')
+        return
+      }
+      let body: string
+      try {
+        body = await readFile(join(financeHome, 'state', 'briefing.json'), 'utf-8')
+      } catch {
+        sendJson(res, 404, { exists: false })
+        return
+      }
+      res.writeHead(200, {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-cache',
+      })
+      res.end(body)
     },
   })
 

@@ -3,18 +3,20 @@
 import type { Holding, Snapshot } from '../api.js'
 import { fmtMoney, fmtPct, pnlColor, C } from '../format.js'
 
-export function HoldingsTab({ snapshot, onQuickOp }: {
+export function HoldingsTab({ snapshot, onQuickOp, onFundClick }: {
   snapshot: Snapshot
   onQuickOp: (code: string) => void
+  /** 持仓行点击 → 基金下钻（新终端 UI 提供；旧 client bundle 缺省则不可点）。 */
+  onFundClick?: (code: string) => void
 }): React.ReactElement {
   const holdings = [...snapshot.holdings].sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
   const totalValue = snapshot.summary.total_value
   const th: React.CSSProperties = {
-    textAlign: 'right', padding: '6px 10px', fontSize: 11, color: C.dim,
-    fontWeight: 500, borderBottom: `1px solid ${C.line}`, whiteSpace: 'nowrap',
+    textAlign: 'right', padding: '8px 10px', fontSize: 11, color: C.faint,
+    fontWeight: 500, borderBottom: `1px solid ${C.line2}`, whiteSpace: 'nowrap',
   }
   const td: React.CSSProperties = {
-    textAlign: 'right', padding: '7px 10px', fontSize: 12, color: C.text,
+    textAlign: 'right', padding: '8px 10px', fontSize: 12, color: C.text,
     borderBottom: `1px solid ${C.line}`, whiteSpace: 'nowrap',
   }
 
@@ -29,7 +31,7 @@ export function HoldingsTab({ snapshot, onQuickOp }: {
 
   return (
     <div style={{ padding: '16px 20px', overflowX: 'auto' }}>
-      <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+      <table className="fb-table" style={{ borderCollapse: 'collapse', width: '100%' }}>
         <thead>
           <tr>
             <th style={{ ...th, textAlign: 'left' }}>基金</th>
@@ -45,27 +47,31 @@ export function HoldingsTab({ snapshot, onQuickOp }: {
         </thead>
         <tbody>
           {holdings.map(h => (
-            <tr key={h.code}>
+            <tr key={h.code}
+              onClick={onFundClick ? () => onFundClick(h.code) : undefined}
+              title={onFundClick ? '点击下钻到基金详情' : undefined}
+              style={{ cursor: onFundClick ? 'pointer' : undefined }}>
               <td style={{ ...td, textAlign: 'left' }}>
                 <div style={{ fontWeight: 600 }}>{h.name}</div>
-                <div style={{ fontSize: 10, color: C.dim }}>{h.code}{h.navDate ? ` · ${h.navDate}` : ''}</div>
+                <div style={{ fontSize: 10, color: C.faint }}>{h.code}{h.navDate ? ` · ${h.navDate}` : ''}</div>
               </td>
-              <td style={td}>{fmtMoney(h.shares)}</td>
-              <td style={td}>{fmtMoney(h.cost)}</td>
-              <td style={td}>{h.avg != null ? fmtMoney(h.avg, 4) : '—'}</td>
-              <td style={td}>{h.nav != null ? fmtMoney(h.nav, 4) : '—'}</td>
-              <td style={td}>{h.value != null ? fmtMoney(h.value) : '—'}</td>
-              <td style={td}>
+              <td style={td} className="fb-num">{fmtMoney(h.shares)}</td>
+              <td style={td} className="fb-num">{fmtMoney(h.cost)}</td>
+              <td style={td} className="fb-num">{h.avg != null ? fmtMoney(h.avg, 4) : '—'}</td>
+              <td style={td} className="fb-num">{h.nav != null ? fmtMoney(h.nav, 4) : '—'}</td>
+              <td style={td} className="fb-num">{h.value != null ? fmtMoney(h.value) : '—'}</td>
+              <td style={td} className="fb-num">
                 {h.value != null && totalValue ? fmtPct(h.value / totalValue * 100, false) : '—'}
               </td>
-              <td style={{ ...td, color: pnlColor(h.pnl) }}>
+              <td style={{ ...td, color: pnlColor(h.pnl) }} className="fb-num">
                 {h.pnl != null ? fmtMoney(h.pnl) : '—'}
                 <div style={{ fontSize: 10 }}>{fmtPct(h.pnl_pct)}</div>
               </td>
               <td style={{ ...td, textAlign: 'center' }}>
-                <button onClick={() => onQuickOp(h.code)} style={{
-                  border: `1px solid ${C.line}`, borderRadius: 5, background: 'transparent',
-                  color: C.accent, fontSize: 11, padding: '2px 8px', cursor: 'pointer',
+                <button onClick={ev => { ev.stopPropagation(); onQuickOp(h.code) }} style={{
+                  border: `1px solid ${C.line2}`, borderRadius: 6, background: 'transparent',
+                  color: C.accentHi, fontSize: 11, padding: '3px 10px', cursor: 'pointer',
+                  fontFamily: 'inherit',
                 }}>
                   记一笔
                 </button>
