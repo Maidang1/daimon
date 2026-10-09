@@ -103,7 +103,7 @@ npm install --prefix client/runtime   # 首次：把 dsh CLI 落到本地 (扁�
 pnpm start                   # 等价于 DSH_HOME=$PWD/dsh-home node client/runtime/.../dsh/lib/bin.js --profile daimon-web
 ```
 
-dsh CLI 装在 `client/runtime/`（独立 `package.json` 用 **npm 扁平布局**固定 `@deepseek-ai/dsh@0.1.7-rc.2`，与 npx 缓存布局一致——上游有若干包把运行期依赖写进了 devDependencies，pnpm 严格布局装不齐；一次性安装后 `pnpm start` 走本地 `bin.js`，不再访问网络、不经 npx）。其中 `DSH_HOME` 指向的是仓库内自带的 `dsh-home` 目录（profile、会话、凭证等运行时数据都在里面）。
+dsh CLI 装在 `client/runtime/`（独立 `package.json` 用 **npm 扁平布局**固定 `@deepseek-ai/dsh@0.2.0-rc.2`，与 npx 缓存布局一致——上游有若干包把运行期依赖写进了 devDependencies，pnpm 严格布局装不齐；一次性安装后 `pnpm start` 走本地 `bin.js`，不再访问网络、不经 npx）。其中 `DSH_HOME` 指向的是仓库内自带的 `dsh-home` 目录（profile、会话、凭证等运行时数据都在里面）。
 
 运行后输出一个带 token 的 URL，浏览器打开即可（监听 `127.0.0.1:3180`）。`/` 是官方 dsh SPA。
 
