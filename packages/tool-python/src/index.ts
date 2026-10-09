@@ -54,9 +54,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       + 'for computation, data work, and anything whose intermediate state a later step needs. '
       + 'The kernel pre-injects bash(), mcp (MCP client), harness (long-term memory entries), '
       + 'rlm (host bridge: spawn/collect subagents), and emit(). Importable skills on PYTHONPATH: '
-      + 'finance (personal fund analysis over the local touzi backend; start with '
-      + 'await finance.ensure_backend()), goal, compact, refine, rlm_heartbeat, agent_message, '
-      + 'agent_observe — their docstrings are the documentation. The workspace AGENTS.md '
+      + 'goal, compact, refine, rlm_heartbeat, agent_message, agent_observe — their docstrings '
+      + 'are the documentation. The workspace AGENTS.md '
       + 'describes the full runtime surface.',
     parameters: {
       code: {

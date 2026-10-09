@@ -5,8 +5,7 @@
     "@deepseek-ai/dsh-rlm-kernel-python": "link:../../../packages/rlm-kernel-python",
     "@deepseek-ai/dsh-tool-python": "link:../../../packages/tool-python",
     "@deepseek-ai/dsh-rlm-bindings": "link:../../../packages/rlm-bindings",
-    "@deepseek-ai/dsh-rlm-harness-local": "link:../../../packages/rlm-harness-local",
-    "@deepseek-ai/dsh-finance-board": "link:../../../packages/finance-board"
+    "@deepseek-ai/dsh-rlm-harness-local": "link:../../../packages/rlm-harness-local"
   },
   "dsh": {
     "profile": {
@@ -16,8 +15,7 @@
         "@deepseek-ai/dsh-rlm-kernel-python",
         "@deepseek-ai/dsh-tool-python",
         "@deepseek-ai/dsh-rlm-bindings",
-        "@deepseek-ai/dsh-rlm-harness-local",
-        "@deepseek-ai/dsh-finance-board"
+        "@deepseek-ai/dsh-rlm-harness-local"
       ]
     }
   }

@@ -9,12 +9,12 @@
         name: '@deepseek-ai/dsh-persona'
         config:
           suffix: Your working directory is {{cwd}}.
-          prefix: You are daimon, a finance-first personal agent powered by the {{model}}
-            model. Your primary mission is the user's investment portfolio —
-            fund positions, NAV predictions, and market radar — backed by real
-            data from the finance skill. Software-engineering work (code, files,
-            scripts) is secondary and always in service of the finance mission
-            or explicit user requests.
+          prefix: You are daimon, a general-purpose personal agent powered by the
+            {{model}} model. You help the user with software engineering,
+            automation, data analysis, research, writing, and everyday tasks —
+            using your persistent Python REPL, file tools, and subagent family.
+            Be proactive: when a task benefits from running code, inspecting
+            files, or spawning a subagent, do it instead of asking.
       - id: agent-instructions
         name: '@deepseek-ai/dsh-agent-instructions'
         config:
@@ -195,7 +195,7 @@
 # --- 文档预览 ---
 - id: office-to-pdf
   disabled: true
-# ui-sidebar-documentpreview 已恢复: finance 看板经 present 在右侧栏预览 (sandboxed iframe, 自动重载)
+# ui-sidebar-documentpreview 保持启用: present 的 HTML 内容可在右侧栏预览 (sandboxed iframe, 自动重载)
 
 # --- open-in-app ---
 - id: open-in-app
@@ -256,7 +256,7 @@
   config:
     host: 127.0.0.1
     port: 3180
-# --- kernel 解释器: 切到 miniconda (finance 包原生实现 RBSA/热点等分析, 需要 pandas/scipy/requests/dotenv) ---
+# --- kernel 解释器: 切到 miniconda（自带 pandas/numpy/scipy/requests/dotenv，REPL 里做数据分析即用） ---
 - id: rlm-kernel-python
   config:
     pythonBin: /Users/bytedance/miniconda/bin/python3
@@ -264,14 +264,6 @@
     maxOutputChars: 65536
     startupTimeoutMs: 30000
     shutdownGraceMs: 3000
-# --- finance 终端: 只需覆盖解释器（financeHome 默认依次跟随 $FINANCE_HOME → $DSH_HOME/finance，
-#     即本 profile 的 dsh-home/finance，无需在此硬编码绝对路径）---
-- id: finance-board
-  name: '@deepseek-ai/dsh-finance-board'
-  config:
-    # 带 pandas/numpy/scipy 的解释器，与 rlm-kernel-python 配的是同一个。
-    # 这是本机事实，故放在 profile；包默认值按 $PATH 找 python3。
-    pythonBin: /Users/bytedance/miniconda/bin/python3
 - id: ui-settings-general
   name: "@deepseek-ai/dsh-client-ui-settings-general"
   config:
@@ -291,5 +283,4 @@
     preference: light
 
 # --- RLM Python skills: 6 个移植自 prime-agent 的 skill 包 (goal/compact/refine/rlm_heartbeat/agent_message/agent_observe)
-# + finance (touzi 基金后端直连客户端, 需 kernel 跑 miniconda python),
 # 随 vendored rlm-kernel-python 的 py/skills/ 发布; kernel 会自行把 py/skills 加进 PYTHONPATH, 无需此处配置 ---

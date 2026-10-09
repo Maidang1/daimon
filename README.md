@@ -32,7 +32,7 @@ REPL 启动时自动注入一套运行时（`py/rlm/`），模型零 import 即�
 - `todo` — 任务清单（允许并行 in-progress）
 - `ask-user` — 向人提问
 - `present` — 展示内容
-- persona / agent-instructions — 人格与指令注入（`dsh-home/AGENTS.md` 是全局运行手册：REPL 预注入名、7 个 Python skills、finance 用法与看板入口都在里面，是模型发现自身能力的主通道）
+- persona / agent-instructions — 人格与指令注入（`dsh-home/AGENTS.md` 是全局运行手册：REPL 预注入名、6 个 Python skills 的用法都在里面，是模型发现自身能力的主通道）
 - compaction — token 压力自动压缩 + `/compact` 手动压缩
 
 > 新会话默认 preset 为 `standard`（profile patch 里 `agent-preset-registry.selectedDefault` 控制）；`minimal` preset 没有 agent-instructions 与工具组，只用于纯聊天。
@@ -139,18 +139,17 @@ daimon/
 ├── package.json + pnpm-workspace.yaml   # 根 workspace，为 vendored 包安装已发布依赖
 ├── packages/                            # 全部 vendor 自 deepseek-harness（未发布 npm）
 │   ├── rlm-kernel/              # RLM kernel 能力缝：ctx.rlmKernel 服务定义与线协议
-│   ├── rlm-kernel-python/       # CPython provider + REPL 运行时 + py/skills（7 个）
+│   ├── rlm-kernel-python/       # CPython provider + REPL 运行时 + py/skills（6 个）
 │   ├── tool-python/             # 暴露给模型的 python 工具
 │   ├── rlm-harness/             # continual harness 抽象 seam（条目 + 精炼事件）
 │   ├── rlm-harness-local/       # harness 的 JSON 文件 provider（已接线）
-│   ├── finance-board/           # Finance 面板（Form C）：官方 SPA 右侧栏 Finance tab（client bundle）+ /finance/api/* JSON + 异步任务
 │   └── rlm-bindings/            # 28 条 host_request 宿主绑定（已接线，自带 patch 自注入）
 └── dsh-home/profiles/daimon-web/
     ├── package.json             # bundle 列表 + link:../../../packages/* 相对链接
     └── cordis.patch.yml         # 全部定制：功能裁剪 + preset 同步裁剪 + 端口覆盖
 ```
 
-profile 的 bundle 为 `@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app` + 5 个 link 进来的 vendored 包。kernel 的 `pythonBin` 在 `cordis.patch.yml` 里覆盖为 `~/miniconda/bin/python3`（finance 包的 RBSA/热点等分析引擎需要 pandas/scipy 等依赖；同时模型在任意 cell 里也可用这套科学计算环境）。
+profile 的 bundle 为 `@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app` + 4 个 link 进来的 vendored 包。kernel 的 `pythonBin` 在 `cordis.patch.yml` 里覆盖为 `~/miniconda/bin/python3`（自带 pandas/numpy/scipy/requests/dotenv，模型在任意 cell 里可直接用这套科学计算环境）。
 
 ---
 
@@ -175,43 +174,7 @@ profile 的 bundle 为 `@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app` + 5 
 | 心跳 | `rlm_heartbeat.create` / `update` / `list` / `delete` | 周期自检 |
 | 精炼 | `refine.run` / `refine.status` | 回合边界 harness 精炼 |
 
-模型侧不直接调 wire——6 个 Python skill（`goal` / `compact` / `refine` / `rlm_heartbeat` / `agent_message` / `agent_observe`）是它们的薄类型化封装，`import` 即用，零第三方依赖。第 7 个 skill `finance` 不走 wire，见下文。
-
----
-
-## 金融分析（finance 包 + 看板）
-
-`py/skills/finance/` 是 daimon 原生的基金分析包（fork 自 touzi 后端，已彻底脱钩）：组合记账、天天基金行情、理财通导入、RBSA 风格回归、净值预测流水线（`run_daily_job`）、热点雷达、持仓穿透、看板渲染器，全部在内。**没有任何服务，也不依赖 touzi 仓库**。全部可变状态在 `dsh-home/finance/`（FINANCE_HOME，已 gitignore）：账本、持仓基线、ops、预测 artifact、行情缓存、`.env`（`LCT_COOKIE` / `MOONSHOT_API_KEY`）都归这里：
-
-```python
-import finance
-await finance.status()              # FINANCE_HOME/解释器/凭证自检
-await finance.set_holding("008401", shares=1000, cost_amount=2000, name="xx基金")  # 建仓
-await finance.add_op("008401", "buy", 100, 1.2345)   # 记一笔买卖，自动重渲看板
-ctx = await finance.agent_context() # 组合+穿透+预测+热点完整上下文（不调 LLM，agent 自己推理）
-await finance.run_daily_job()       # 每日流水线：行情→RBSA 预测→artifact
-await finance.ui_snapshot()         # 重建 UI 快照（终端面板数据源；看板重渲时自动刷新）
-path = await finance.dashboard()    # 渲染自包含看板 HTML（无 JS 降级/深链入口）
-```
-
-覆盖：理财通持仓/流水（需 `$FINANCE_HOME/.env` 的 `LCT_COOKIE`，失效抛 `FinanceAuthError`）、组合账本与看板操作记录双轨（`add_transaction` 记帐不上看板，`add_op` 上看板不动账本）、NAV 预测与 RBSA 结果、热点雷达、持仓穿透行业分析、预测命中率、基金库管理、可选 LLM 投研报告（`analyze()`，消耗 `MOONSHOT_API_KEY`/`KIMI_API_KEY` 配额，优先自己基于 `agent_context()` 推理）。金额单位为元；账本日期 `YYYYMMDD`，看板 ops 日期 `YYYY-MM-DD`。
-
-**Finance 面板三个入口**（都不依赖任何服务）：
-
-1. **右侧栏 Finance tab**（主入口，Form C）——官方 SPA 右侧面板的内置 tab，与官方会话共享同一 agent/会话；总览/持仓/热点/交易流水四个 tab + 快捷操作。面板数据来自 `/finance/api/snapshot`（finance skill 每次看板重渲时同步写出的 `state/ui_snapshot.json`），5 秒轮询 mtime 变更才重载；快捷操作：「记一笔」（= `finance.add_op`，卖出超持仓弹确认）、「生成日报」（= `run_daily_job`，异步 job）、「深度快照」（= 含行业穿透的 `ui_snapshot`）；异步任务经 `POST /finance/api/jobs` 起一次性 Python runner（同 kernel 解释器），状态写在 `state/ui_job_*.json`。面板是官方 SPA 的客人：主题跟随宿主（借 `--dsw-alias-*` token，宿主切深浅面板自动跟随），daimon 身份只留磁贴结构与一个青色 accent。
-2. **静态看板** `http://127.0.0.1:3180/finance`——自包含 HTML，无 JS 降级/深链入口，渲染产物与会话内 `present` 看板共用。
-3. 会话内 `present` 看板文件 → 右侧栏 documentpreview 面板（sandboxed iframe，自动重载）。
-
-> `/finance/*` 路由与 webserver 其余部分一样无鉴权，靠 127.0.0.1 回环绑定保护；官方 SPA 走 authorizeIndex token/cookie 门。看板含个人资产数据，不要把 webserver 绑到非回环地址。
-
----
-
-## Web UI 架构（Form C：官方 SPA 是应用本体）
-
-浏览器体验 = 官方 dsh SPA；finance-board 不做自己的浏览器外壳（早期的 `/` 自建终端已退役），只提供官方界面里的一个面板：
-
-- **client 半（`packages/finance-board/src/client/`）**：注册一个 right-Sidebar tab 类型（`sidebarRightTabs`）+ 把面板体注入 `sidebar.right.pane.tab` 席位（对齐 ui-sidebar-files 的两段式注册）。bundle 由 tsdown 出 CJS、`scripts/wrap-client.mjs` 包成 dsh client loader 信封，唯一 runtime external 是 react。面板样式没有 CSS 加载通道，apply() 时注入一小份样式（`panel-styles.ts`）：`.fb-root` token 层借宿主的 `--dsw-alias-*`（随 `body[data-ds-dark-theme]` 自动翻转），accent 与红涨绿跌语义色按主题各一组。SVG 图表读不了 var()——`charts.tsx` 按 `document.body[data-ds-dark-theme]` 选 hex 调色板并在主题翻转时重渲染。
-- **host 半（`packages/finance-board/src/index.ts`）**：只 inject `webServer`，own `/finance*` 路由（`/finance` 静态看板 + `/finance/api/{status,snapshot,briefing,jobs,ops}`）；无 `/` 接管、无 connection 依赖。升级 dsh 需回归的是 sidebar-right 的 slot/tab 协议与 dsw token 名。
+模型侧不直接调 wire——6 个 Python skill（`goal` / `compact` / `refine` / `rlm_heartbeat` / `agent_message` / `agent_observe`）是它们的薄类型化封装，`import` 即用，零第三方依赖。
 
 ---
 
@@ -219,9 +182,9 @@ path = await finance.dashboard()    # 渲染自包含看板 HTML（无 JS 降级
 
 官方 `web` 模板 182 行插件，patch 禁用 61 行 + 替换 2 个 preset config。
 
-**保留**：Web 聊天、核心 agent（python/fs 工具、审批、设置/凭证、compaction、会话持久化）、delegation 三工具（preset 内 delegation 组）、goal 服务 + round driver（rlm-bindings 接线所需）。
+**保留**：Web 聊天、核心 agent（python/fs/bash 工具、审批、设置/凭证、compaction、会话持久化）、delegation 三工具（preset 内 delegation 组）、goal 服务 + round driver（rlm-bindings 接线所需）。
 
-**裁掉**：bash/pwsh 工具及 sandbox、子代理 fork 链路与 UI、计划模式、`/goal` 命令与 goal 工具、schedule（定时任务）、jobs（后台任务）、PTC/工作流、MCP 模型面工具、Web 搜索、技能系统、插件管理器、OTEL、HMR、Cordis 开发工具、pi-ai 适配器等。
+**裁掉**：子代理 fork 链路与 UI、计划模式、`/goal` 命令与 goal 工具、schedule（定时任务）、jobs（后台任务）、PTC/工作流、MCP 模型面工具、Web 搜索、技能系统、插件管理器、OTEL、HMR、Cordis 开发工具、pi-ai 适配器等。
 
 > 注意 preset 是第二棵插件树：preset config 内嵌 Agent 作用域插件列表，顶层禁用够不到，必须整体替换 preset config 同步裁剪。以后裁工具要顶层和 preset 两层一起改；恢复某项删掉对应分组即可。分组注释见 `cordis.patch.yml`。
 
