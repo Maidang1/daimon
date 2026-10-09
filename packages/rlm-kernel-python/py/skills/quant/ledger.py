@@ -1,15 +1,18 @@
 """Hypothesis / forecast ledger for quant work.
 
-Append-only JSONL at ``$FINANCE_HOME/quant_hypotheses.jsonl`` (FINANCE_HOME
-resolved the same way ``finance._state`` resolves it — imported lazily so this
-module never hard-depends on the finance package being importable). Every
-entry is a falsifiable statement with a required invalidation condition and a
-horizon date; ``review`` auto-resolves only entries whose check is explicitly
+Append-only JSONL at ``$FINANCE_HOME/quant_hypotheses.jsonl``. FINANCE_HOME
+and the atomic writers come from ``finance._state`` — the canonical owner of
+both: ``quant`` and ``finance`` are sibling packages in the same skills tree,
+so whenever this module is importable ``finance`` is too, and a missing
+finance package fails loudly at call time (repo convention) instead of
+silently writing to a mirrored default. Every entry is a falsifiable
+statement with a required invalidation condition and a horizon date;
+``review`` auto-resolves only entries whose check is explicitly
 machine-checkable (``nav_above`` / ``nav_below`` against a known NAV).
 Everything else stays ``open`` for the agent to judge — the ledger never
-guesses. Corrupt files read as empty (with a warning); whole-file rewrites are
-atomic (own mkstemp tmp + fsync + rename, via ``finance._state`` when
-available, mirrored locally otherwise).
+guesses. Corrupt files read as empty (with a warning); whole-file rewrites
+are ``finance._state``'s atomic write (own mkstemp tmp + fsync + rename) and
+appends go through its torn-line-repairing ``append_jsonl``.
 
 Stdlib-only at import time; synchronous.
 """
@@ -19,6 +22,7 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import math
 import os
 import uuid
 from builtins import open as _builtin_open
@@ -26,72 +30,23 @@ from typing import Any, Dict, List, Optional
 
 _log = logging.getLogger(__name__)
 
-# Mirror of finance._state._DEFAULT_HOME, used only when the finance package
-# cannot be imported. Keep in sync with that module.
-_FALLBACK_FINANCE_HOME = "/Users/bytedance/codes/open-source/daimon/dsh-home/finance"
-
 _OUTCOMES = ("won", "lost", "void")
 _CHECK_TYPES = ("nav_above", "nav_below")
+# Sort-stable stand-in for an open entry with no horizon: it never reads "due".
+_OPEN_HORIZON = "9999-12-31"
 
 
 def _finance_state() -> Any:
-    """Import finance._state lazily; None when finance is not importable."""
-    try:
-        from finance import _state as state
+    """``finance._state`` — the canonical owner of FINANCE_HOME and of the
+    atomic JSONL writers. Imported per call (lazy); a missing finance package
+    raises here, by design."""
+    from finance import _state as state
 
-        return state
-    except Exception:
-        return None
-
-
-def _finance_home() -> str:
-    state = _finance_state()
-    if state is not None:
-        return state.home()
-    return os.environ.get("FINANCE_HOME", _FALLBACK_FINANCE_HOME)
+    return state
 
 
 def _ledger_path() -> str:
-    return os.path.join(_finance_home(), "quant_hypotheses.jsonl")
-
-
-def _write_jsonl_atomic(path: str, records: List[Dict[str, Any]]) -> None:
-    state = _finance_state()
-    if state is not None:
-        state.write_jsonl_atomic(path, records)
-        return
-    import tempfile
-
-    parent = os.path.dirname(path) or "."
-    os.makedirs(parent, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=parent, prefix=os.path.basename(path) + ".", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            for record in records:
-                fh.write(json.dumps(record, ensure_ascii=False) + "\n")
-            fh.flush()
-            os.fsync(fh.fileno())
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
-    os.replace(tmp, path)
-
-
-def _append_jsonl(path: str, record: Dict[str, Any]) -> None:
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    sep = ""
-    if os.path.exists(path) and os.path.getsize(path) > 0:
-        with _builtin_open(path, "rb") as fh:
-            fh.seek(-1, os.SEEK_END)
-            if fh.read(1) != b"\n":
-                # Torn last line (no trailing newline): start a fresh line so
-                # the append does not fuse with corrupt bytes.
-                sep = "\n"
-    with _builtin_open(path, "a", encoding="utf-8") as fh:
-        fh.write(sep + json.dumps(record, ensure_ascii=False) + "\n")
+    return os.path.join(_finance_state().home(), "quant_hypotheses.jsonl")
 
 
 def _load() -> List[Dict[str, Any]]:
@@ -104,6 +59,8 @@ def _load() -> List[Dict[str, Any]]:
     if not os.path.exists(path):
         return []
     try:
+        # _builtin_open, not the module-level ``open()`` public API below —
+        # this module's own ``open`` shadows the builtin.
         with _builtin_open(path, encoding="utf-8") as fh:
             lines = fh.readlines()
     except OSError as exc:
@@ -122,10 +79,6 @@ def _load() -> List[Dict[str, Any]]:
     if dropped:
         _log.warning("quant ledger %s: dropped %d unparseable line(s)", path, dropped)
     return entries
-
-
-def _store_all(entries: List[Dict[str, Any]]) -> None:
-    _write_jsonl_atomic(_ledger_path(), entries)
 
 
 def add(
@@ -190,7 +143,7 @@ def add(
         "source_run": source_run,
         "check": check,
     }
-    _append_jsonl(_ledger_path(), entry)
+    _finance_state().append_jsonl(_ledger_path(), entry)
     return hid
 
 
@@ -227,7 +180,7 @@ def resolve(hid: str, outcome: str, evidence: Optional[Any] = None) -> Dict[str,
             entry["status"] = outcome
             entry["resolved_at"] = datetime.datetime.now().isoformat(timespec="seconds")
             entry["evidence"] = evidence
-            _store_all(entries)
+            _finance_state().write_jsonl_atomic(_ledger_path(), entries)
             return entry
     raise ValueError(f"no hypothesis with id {hid!r}")
 
@@ -244,7 +197,10 @@ def due(today: Optional[str] = None) -> List[Dict[str, Any]]:
         today: YYYY-MM-DD; defaults to the local calendar date.
     """
     today_s = today or datetime.date.today().isoformat()
-    return [e for e in _load() if e.get("status") == "open" and e.get("horizon_date", "9999-12-31") <= today_s]
+    return [
+        e for e in _load()
+        if e.get("status") == "open" and e.get("horizon_date", _OPEN_HORIZON) <= today_s
+    ]
 
 
 def accuracy() -> Dict[str, Any]:
@@ -279,15 +235,33 @@ def _latest_nav(code: str) -> Optional[float]:
         return None
 
 
+def _check_won(check: Dict[str, Any], nav: float) -> Optional[bool]:
+    """Did a machine-checkable predicate win at NAV ``nav``?
+
+    Returns None when the stored check is malformed — a missing, non-numeric,
+    or non-finite ``level``, which ``add`` rejects but a hand-edited ledger
+    line can still carry. review() leaves such entries open instead of
+    crashing on them.
+    """
+    try:
+        level = float(check["level"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not math.isfinite(level) or not math.isfinite(nav):
+        return None
+    return nav >= level if check["type"] == "nav_above" else nav <= level
+
+
 def review(today: Optional[str] = None) -> Dict[str, List[Dict[str, Any]]]:
     """Auto-resolve due entries whose check is machine-checkable today.
 
     An entry resolves only when ALL of the following hold: it is due, it
     carries a ``check`` of type ``nav_above`` / ``nav_below``, its instrument
-    resolves to a known latest NAV, and that NAV is on the winning side of
+    resolves to a known latest NAV, that NAV is on the winning side of
     ``level`` (nav_above wins when latest NAV >= level, nav_below when
-    <= level). Everything else due stays due and is returned under
-    ``unresolved`` for the agent to judge. Never guesses.
+    <= level), and the check itself is well-formed. Everything else due
+    stays due and is returned under ``unresolved`` for the agent to judge.
+    Never guesses.
 
     Args:
         today: YYYY-MM-DD override for due(); defaults to the local date.
@@ -302,7 +276,7 @@ def review(today: Optional[str] = None) -> Dict[str, List[Dict[str, Any]]]:
     today_s = today or datetime.date.today().isoformat()
 
     for entry in entries:
-        if entry.get("status") != "open" or entry.get("horizon_date", "9999-12-31") > today_s:
+        if entry.get("status") != "open" or entry.get("horizon_date", _OPEN_HORIZON) > today_s:
             continue
         check = entry.get("check")
         nav = None
@@ -311,9 +285,12 @@ def review(today: Optional[str] = None) -> Dict[str, List[Dict[str, Any]]]:
         if nav is None:
             unresolved.append(entry)
             continue
+        won = _check_won(check, float(nav))
+        if won is None:
+            # Malformed check: never guess, never crash — leave it open.
+            unresolved.append(entry)
+            continue
         nav = float(nav)
-        level = float(check["level"])
-        won = nav >= level if check["type"] == "nav_above" else nav <= level
         entry["status"] = "won" if won else "lost"
         entry["resolved_at"] = datetime.datetime.now().isoformat(timespec="seconds")
         entry["evidence"] = {
@@ -325,5 +302,5 @@ def review(today: Optional[str] = None) -> Dict[str, List[Dict[str, Any]]]:
         changed = True
 
     if changed:
-        _store_all(entries)
+        _finance_state().write_jsonl_atomic(_ledger_path(), entries)
     return {"resolved": resolved, "unresolved": unresolved}

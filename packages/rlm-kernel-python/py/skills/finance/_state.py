@@ -36,7 +36,15 @@ import time
 from collections.abc import Iterable
 from typing import Any
 
-_DEFAULT_HOME = "/Users/bytedance/codes/open-source/daimon/dsh-home/finance"
+def _default_home() -> str:
+    """``$DSH_HOME/finance`` when the host set DSH_HOME, else the repo's own
+    ``dsh-home/finance``. A hardcoded absolute path here silently breaks on
+    any other machine or DSH_HOME layout, the same way the TS-side default
+    did before it learned to follow DSH_HOME."""
+    dsh_home = os.environ.get("DSH_HOME")
+    if dsh_home:
+        return os.path.join(dsh_home, "finance")
+    return "/Users/bytedance/codes/open-source/daimon/dsh-home/finance"
 
 _env_loaded = False
 
@@ -49,7 +57,7 @@ class FinanceError(RuntimeError):
 
 def home() -> str:
     """Root of all finance-owned state."""
-    return os.environ.get("FINANCE_HOME", _DEFAULT_HOME)
+    return os.environ.get("FINANCE_HOME") or _default_home()
 
 
 def state_dir() -> str:
@@ -176,9 +184,20 @@ def write_jsonl_atomic(path: str, records: Iterable[dict[str, Any]]) -> None:
 
 
 def append_jsonl(path: str, record: dict[str, Any]) -> None:
+    """Append one record to a JSONL file (creating parents).
+
+    断行自愈：文件若不以换行结尾（上次写崩了），先补一个换行再追加，
+    免得新记录和损坏字节粘成一行、下次整行读不动。
+    """
     ensure_dir(os.path.dirname(path))
+    sep = ""
+    if os.path.exists(path) and os.path.getsize(path) > 0:
+        with open(path, "rb") as fh:
+            fh.seek(-1, os.SEEK_END)
+            if fh.read(1) != b"\n":
+                sep = "\n"
     with open(path, "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+        fh.write(sep + json.dumps(record, ensure_ascii=False) + "\n")
 
 
 # ---------------- 状态访问器（纯文件 I/O，勿在此堆业务逻辑） ----------------

@@ -9,11 +9,22 @@
         name: '@deepseek-ai/dsh-persona'
         config:
           suffix: Your working directory is {{cwd}}.
-          prefix: You are daimon, a finance-first personal agent powered by the {{model}} model. Your primary mission is the user's investment portfolio — fund positions, NAV predictions, and market radar — backed by real data from the finance skill. Software-engineering work (code, files, scripts) is secondary and always in service of the finance mission or explicit user requests.
+          prefix: You are daimon, a finance-first personal agent powered by the {{model}}
+            model. Your primary mission is the user's investment portfolio —
+            fund positions, NAV predictions, and market radar — backed by real
+            data from the finance skill. Software-engineering work (code, files,
+            scripts) is secondary and always in service of the finance mission
+            or explicit user requests.
       - id: agent-instructions
         name: '@deepseek-ai/dsh-agent-instructions'
         config:
           maxBytes: 65536
+      - id: tool-bash
+        name: '@deepseek-ai/dsh-tool-bash'
+        disabled: !!js process.platform === 'win32'
+      - id: tool-pwsh
+        name: '@deepseek-ai/dsh-tool-pwsh'
+        disabled: !!js process.platform !== 'win32'
       - id: tool-fs
         name: '@deepseek-ai/dsh-tool-fs'
       - id: tool-fs-search
@@ -77,21 +88,9 @@
           includeRuntimeContext: false
 # == @deepseek-ai/dsh-web-app, patched by /Users/bytedance/codes/open-source/daimon/dsh-home/profiles/daimon-web/cordis.patch.yml
 
-# --- shell 权限预设 (bash 工具已移除, 无 shell 服务) ---
-- id: permission
-  disabled: true
-- id: ui-permission
-  disabled: true
-
-# --- bash 工具 (Python kernel 内置 bash() 已覆盖) ---
-- id: tool-bash
-  disabled: true
-- id: tool-pwsh
-  disabled: true
-- id: bash-sandbox
-  disabled: true
-- id: pwsh-sandbox
-  disabled: true
+# --- shell / 权限: 已恢复 dsh 原生 bash 工具 ---
+# preset-standard 挂载 tool-bash/tool-pwsh (见上方 preset), 宿主层恢复
+# bash-sandbox/pwsh-sandbox 执行器与 permission 预设 (默认 workspace-write + 审批)。
 
 # Trim layer: keep web chat + core agent, disable whole feature blocks.
 # Re-enable any block by deleting its entries.
@@ -242,9 +241,11 @@
 - id: ui-cordis
   disabled: true
 
-# --- 其他模型提供商 (只留 DeepSeek) ---
-- id: llm-pi-ai
-  disabled: true
+# --- 其他模型提供商 ---
+# llm-pi-ai 已恢复启用：设置页「添加模型提供商」的两种方式（第三方目录 / 自定义 API）都依赖
+# 这个 namespace，禁用时按钮不可用。想回到「只留 DeepSeek」的精简壳，恢复下面三行即可。
+# - id: llm-pi-ai
+#   disabled: true
 
 # --- ralph 循环工具 ---
 - id: tool-ralph
@@ -263,7 +264,8 @@
     maxOutputChars: 65536
     startupTimeoutMs: 30000
     shutdownGraceMs: 3000
-# --- finance 终端: 只需覆盖解释器（financeHome 默认即 <repo>/dsh-home/finance）---
+# --- finance 终端: 只需覆盖解释器（financeHome 默认依次跟随 $FINANCE_HOME → $DSH_HOME/finance，
+#     即本 profile 的 dsh-home/finance，无需在此硬编码绝对路径）---
 - id: finance-board
   name: '@deepseek-ai/dsh-finance-board'
   config:
@@ -286,7 +288,7 @@
 - id: ui-theme
   name: "@deepseek-ai/dsh-client-ui-theme"
   config:
-    preference: dark
+    preference: light
 
 # --- RLM Python skills: 6 个移植自 prime-agent 的 skill 包 (goal/compact/refine/rlm_heartbeat/agent_message/agent_observe)
 # + finance (touzi 基金后端直连客户端, 需 kernel 跑 miniconda python),

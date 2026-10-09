@@ -10,7 +10,14 @@ checks "found" is only as honest as the recording was.
 Fingerprints keep scalars verbatim and containers as ``{"len"|"shape",
 "min", "max"}`` plus the value list for containers up to 1000 entries (Series
 values, DataFrame flattened cells); larger containers fingerprint by extents
-only. Everything is in-memory; ``save(path)`` writes strict JSON.
+only. Everything is in-memory; ``save(path)`` writes strict JSON via
+``validation.to_jsonable``, so non-finite recorded values (a NAV series with
+a gap, an ``inf`` metric) serialise as ``None`` instead of crashing.
+
+``check`` reports HOW a claim matched — ``"value"`` (equals a recorded
+scalar), ``"member"`` (contained in recorded values), or ``"range"`` (inside
+an extents-only fingerprint's min/max, a weaker guarantee) — because the
+three strengths are not interchangeable evidence.
 
 Stdlib-only at import time.
 """
@@ -66,17 +73,22 @@ def _fingerprint(data: Any) -> Fingerprint:
     return fp
 
 
-def _claim_matches(fp: Fingerprint, value: Any) -> bool:
-    """A claim passes when it equals the recorded scalar or is contained in
-    the recorded container values/extents."""
+def _match_kind(fp: Fingerprint, value: Any) -> Optional[str]:
+    """How a claim matches a fingerprint, or None when it does not.
+
+    ``"value"`` — equals a recorded scalar; ``"member"`` — contained in the
+    recorded values of a container; ``"range"`` — merely inside an
+    extents-only fingerprint's [min, max], which is a much weaker statement
+    than the first two.
+    """
     if fp.get("kind") == "scalar":
-        return value == fp.get("value")
+        return "value" if value == fp.get("value") else None
     if "values" in fp:
-        return any(v == value for v in fp["values"])
+        return "member" if any(v == value for v in fp["values"]) else None
     # Extents-only fingerprint: numeric containment between min and max.
     if "min" in fp and isinstance(value, (int, float)) and not isinstance(value, bool):
-        return float(fp["min"]) <= float(value) <= float(fp["max"])
-    return False
+        return "range" if float(fp["min"]) <= float(value) <= float(fp["max"]) else None
+    return None
 
 
 class RunEvidence:
@@ -107,32 +119,41 @@ class RunEvidence:
         """Check claimed values against what this run recorded.
 
         Args:
-            claims: List of ``(label, value, source_name=None)``; a claim
-                passes when ``value`` equals (or is contained in) recorded
-                data for ``source_name``, or for any recorded source when
-                ``source_name`` is None.
+            claims: List of ``(label, value, source_name=None)`` — a
+                2-tuple ``(label, value)`` is accepted and matches any
+                recorded source; a claim passes when ``value`` equals (or is
+                contained in) recorded data for ``source_name``, or for any
+                recorded source when ``source_name`` is None/absent.
 
         Returns:
             One result per claim: ``{"label", "value", "status":
-            "found" | "not_found", "where"}``; ``where`` names the source(s)
-            the value was found under (None when not found).
+            "found" | "not_found", "where", "match"}``; ``where`` names the
+            source(s) the value was found under (None when not found), and
+            ``match`` the strength — ``"value"`` / ``"member"`` / ``"range"``
+            (None when not found).
         """
         results = []
         for claim in claims:
-            label, value, source_name = (list(claim) + [None, None, None])[:3]
+            label, value, *rest = claim
+            source_name = rest[0] if rest else None
             found_in: List[str] = []
+            match_kind: Optional[str] = None
             for name_sources in self._registry.values():
                 for src, fp in name_sources.items():
                     if source_name is not None and src != source_name:
                         continue
-                    if _claim_matches(fp, value):
+                    match = _match_kind(fp, value)
+                    if match is not None and src not in found_in:
                         found_in.append(src)
+                        if match_kind is None or match != "range":
+                            match_kind = match
             results.append(
                 {
                     "label": label,
                     "value": value,
                     "status": "found" if found_in else "not_found",
                     "where": found_in or None,
+                    "match": match_kind,
                 }
             )
         return results
@@ -148,14 +169,21 @@ class RunEvidence:
         return {"run_id": self.run_id, "recorded": names, "n_records": sum(len(s) for s in self._registry.values())}
 
     def save(self, path: str) -> str:
-        """Write the registry as strict JSON; returns the path."""
+        """Write the registry as strict JSON; returns the path.
+
+        Recorded values are sanitised through ``validation.to_jsonable``, so
+        non-finite floats (a NAV series with a gap, an ``inf`` metric)
+        serialise as ``None`` — strict JSON, no crash, no ``NaN`` token.
+        """
+        from .validation import to_jsonable
+
         parent = os.path.dirname(os.path.abspath(path))
         os.makedirs(parent, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=parent, prefix=os.path.basename(path) + ".", suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 json.dump(
-                    {"run_id": self.run_id, "registry": self._registry},
+                    to_jsonable({"run_id": self.run_id, "registry": self._registry}),
                     fh, ensure_ascii=False, indent=1, allow_nan=False,
                 )
                 fh.flush()

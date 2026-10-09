@@ -3,7 +3,6 @@ packages:
 
 allowBuilds:
   esbuild: true
-
 autoInstallPeers: false
 
 dedupePeerDependents: true

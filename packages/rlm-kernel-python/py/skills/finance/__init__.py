@@ -38,6 +38,10 @@ Data semantics:
 - Every board rebuild also refreshes `state/ui_snapshot.json`
   (`finance.ui_snapshot()` to force it), the data source of the interactive
   Finance 终端 panel (`/finance/api/snapshot`).
+- Analysis results the user should SEE belong on the panel, not only in the
+  chat reply: `publish_view(title, blocks, prompt=...)` renders as a dynamic
+  panel tab (~5s), and `alert(title, level=...)` shows as a dismissible banner.
+  The panel's 「问问 daimon」 button sends `prompt` back into the conversation.
 
 Configuration via environment variables (rarely needed):
 - `FINANCE_HOME` — state root, default `<daimon>/dsh-home/finance`
@@ -646,6 +650,13 @@ async def run_daily_job(mode: str = "afternoon") -> dict[str, Any]:
                 "没有已注册的基金，流水线空跑。持仓不会自动进入预测——"
                 "先用 register_fund(code, baskets) 为基金配置 RBSA 因子篮子。"
             )
+        # 热点雷达不属于 artifact，但每日流水线顺手重建它（冷启动需数分钟），
+        # 否则看板热点 tab 和首页热点区块永远停在「尚未生成」。失败不拖垮
+        # 流水线：预警记进 result，预测结果照常落盘。
+        try:
+            _mod("hotspot").build(verbose=False)
+        except Exception as exc:
+            result["hotspot_warning"] = f"热点雷达重建失败（不影响预测流水线）：{exc}"
         return result
 
     result = await asyncio.to_thread(call)
@@ -685,6 +696,82 @@ async def briefing(news: list[BriefingNews] | None = None, greeting: str | None 
     return await asyncio.to_thread(call)
 
 
+# ---------------- 分析视图与提醒（聊天 → 面板） ----------------
+
+
+async def publish_view(
+    title: str,
+    blocks: list[dict[str, Any]],
+    view_id: str | None = None,
+    prompt: str | None = None,
+) -> dict[str, Any]:
+    """Publish one analysis view → `state/views/<id>.json`, rendered as a
+    dynamic Finance-panel tab within ~5s. `blocks` render in order: text /
+    chart (series of {date, value} points — DataFrame/Series accepted) /
+    table / kpis. `prompt` is the prebuilt question the panel's 「问问 daimon」
+    button sends back to this conversation. Re-publishing the same `view_id`
+    overwrites in place. Tell the user the view title in your reply."""
+
+    def call() -> dict[str, Any]:
+        return _mod("views").publish_view(title, blocks, view_id=view_id, prompt=prompt)
+
+    return await asyncio.to_thread(call)
+
+
+async def list_views() -> list[dict[str, Any]]:
+    """Every live view's metadata (no blocks), newest first."""
+
+    def call() -> list[dict[str, Any]]:
+        return _mod("views").list_views()
+
+    return await asyncio.to_thread(call)
+
+
+async def discard_view(view_id: str) -> dict[str, Any]:
+    """Archive one published view (panel ✕ does the same). Raises FinanceError
+    when the id does not exist."""
+
+    def call() -> dict[str, Any]:
+        return _mod("views").discard_view(view_id)
+
+    return await asyncio.to_thread(call)
+
+
+async def alert(
+    title: str,
+    level: str = "info",
+    detail: str | None = None,
+    prompt: str | None = None,
+) -> dict[str, Any]:
+    """Append one alert → `state/alerts.json` (newest 50): the panel shows it
+    as a dismissible banner. `level` is "info" | "warn" | "action"; `prompt`
+    powers the banner's 「问问 daimon」. Report important alerts in the chat
+    reply too — one event, two channels."""
+
+    def call() -> dict[str, Any]:
+        return _mod("views").alert(title, level=level, detail=detail, prompt=prompt)
+
+    return await asyncio.to_thread(call)
+
+
+async def list_alerts() -> list[dict[str, Any]]:
+    """Current alert entries, oldest first (panel banner renders newest)."""
+
+    def call() -> list[dict[str, Any]]:
+        return _mod("views").list_alerts()
+
+    return await asyncio.to_thread(call)
+
+
+async def dismiss_alert(alert_id: str) -> dict[str, Any]:
+    """Remove one alert by id (panel ✕). Raises FinanceError when absent."""
+
+    def call() -> dict[str, Any]:
+        return _mod("views").dismiss_alert(alert_id)
+
+    return await asyncio.to_thread(call)
+
+
 async def dashboard() -> dict[str, Any]:
     """Render the self-contained 看板 HTML (`$FINANCE_HOME/dashboard.html`, all
     data baked in, no service needed). The Finance 看板 sidebar panel and
@@ -709,20 +796,26 @@ __all__ = [
     "add_op",
     "add_transaction",
     "agent_context",
+    "alert",
     "analyze",
     "briefing",
     "dashboard",
     "delete_op",
     "delete_transaction",
+    "discard_view",
+    "dismiss_alert",
     "fund_search",
     "funds",
     "holdings",
     "hotspots",
+    "list_alerts",
+    "list_views",
     "lct_positions",
     "lct_transactions",
     "live_estimate",
     "ops",
     "portfolio",
+    "publish_view",
     "remove_fund",
     "remove_holding",
     "register_fund",

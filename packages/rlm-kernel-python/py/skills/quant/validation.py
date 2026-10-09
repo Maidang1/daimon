@@ -11,6 +11,14 @@ JSON for ledger evidence. Input-validation error branches are part of the
 contract: invalid parameters and too-small samples return ``{"error": ...}``
 dicts instead of raising.
 
+Every Sharpe / drawdown here is computed by the canonical helpers in
+``metrics`` (sample std, ddof=1; ``bar_returns`` for the return series), so
+``metrics.calc_metrics``'s headline Sharpe and the ``observed_sharpe`` /
+``actual_sharpe`` below agree numerically for the same curve. This
+deliberately deviates from the Vibe-Trading original, whose validation module
+used numpy's population std (ddof=0); default seeds and test constructions are
+unchanged.
+
 pandas/numpy are imported lazily inside functions.
 """
 
@@ -20,7 +28,14 @@ import math
 from numbers import Integral, Real
 from typing import Any, Dict, List
 
-from .metrics import TradeRecord, effective_bars_per_year
+from .metrics import (
+    TradeRecord,
+    bar_returns,
+    buy_and_hold_return,
+    effective_bars_per_year,
+    max_drawdown,
+    sharpe_ratio,
+)
 
 
 def monte_carlo_test(
@@ -121,6 +136,7 @@ def _path_metrics(
 ) -> Dict[str, float]:
     """Compute Sharpe and max drawdown from a PnL sequence."""
     import numpy as np
+    import pandas as pd
 
     equity = initial_capital + np.cumsum(pnls)
     if len(equity) > 1:
@@ -129,12 +145,10 @@ def _path_metrics(
         returns = np.where(prev != 0, diff / np.where(prev != 0, prev, 1.0), 0.0)
     else:
         returns = np.array([0.0])
-    std = returns.std()
-    sharpe = float(returns.mean() / (std + 1e-10) * np.sqrt(bars_per_year))
-    peak = np.maximum.accumulate(equity)
-    dd = (equity - peak) / np.where(peak > 0, peak, 1.0)
-    max_dd = float(dd.min())
-    return {"sharpe": sharpe, "max_dd": max_dd}
+    return {
+        "sharpe": sharpe_ratio(returns, bars_per_year),
+        "max_dd": max_drawdown(pd.Series(equity)),
+    }
 
 
 def bootstrap_sharpe_ci(
@@ -173,17 +187,17 @@ def bootstrap_sharpe_ci(
     if isinstance(seed, bool) or not isinstance(seed, Integral) or seed < 0:
         return {"error": f"seed must be >= 0, got {seed}"}
 
-    returns = equity_curve.pct_change().replace([np.inf, -np.inf], 0.0).dropna().values
+    returns = bar_returns(equity_curve, label="bootstrap").to_numpy()
     if len(returns) < 5:
         return {"error": "need at least 5 return observations"}
 
-    observed = _sharpe(returns, bars_per_year)
+    observed = sharpe_ratio(returns, bars_per_year)
 
     rng = np.random.default_rng(seed)
     boot_sharpes = []
     for _ in range(n_bootstrap):
         sample = rng.choice(returns, size=len(returns), replace=True)
-        boot_sharpes.append(_sharpe(sample, bars_per_year))
+        boot_sharpes.append(sharpe_ratio(sample, bars_per_year))
 
     arr = np.array(boot_sharpes)
     alpha = (1 - confidence) / 2
@@ -203,13 +217,6 @@ def bootstrap_sharpe_ci(
     if n_bootstrap <= 20_000:
         result["sharpe_samples"] = [round(float(s), 4) for s in boot_sharpes]
     return result
-
-
-def _sharpe(returns: Any, bars_per_year: int = 252) -> float:
-    import numpy as np
-
-    std = returns.std()
-    return float(returns.mean() / (std + 1e-10) * np.sqrt(bars_per_year))
 
 
 def walk_forward_analysis(
@@ -252,13 +259,15 @@ def walk_forward_analysis(
 
         win_trades = [t for t in trades if win_start <= t.entry_time <= win_end]
 
-        ret = float(win_eq.iloc[-1] / win_eq.iloc[0] - 1) if win_eq.iloc[0] > 0 else 0.0
-        win_returns = win_eq.pct_change().replace([np.inf, -np.inf], 0.0).dropna().values
-        sharpe = _sharpe(win_returns, bars_per_year) if len(win_returns) > 1 else 0.0
-
-        peak = win_eq.cummax()
-        dd = (win_eq - peak) / peak.replace(0, 1)
-        max_dd = float(dd.min())
+        # Canonical helpers: the window Sharpe uses the same estimator and
+        # return convention as the headline metrics, and the window return is
+        # the buy-and-hold price relative (None — the un-computable case —
+        # reports 0.0).
+        window_return = buy_and_hold_return(win_eq)
+        ret = 0.0 if window_return is None else window_return
+        win_returns = bar_returns(win_eq, label=f"walk-forward window {i + 1}")
+        sharpe = sharpe_ratio(win_returns, bars_per_year)
+        max_dd = max_drawdown(win_eq)
 
         win_pnls = [t.pnl for t in win_trades]
         win_rate = len([p for p in win_pnls if p > 0]) / len(win_pnls) if win_pnls else 0.0

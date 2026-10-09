@@ -9,6 +9,14 @@ Numeric edge-case guards from the original are preserved: ddof=1 small-sample
 guards, wipeout annualisation, the high-water mark seeded at ``initial_cash``,
 and non-finite return handling.
 
+This module is also the canonical home of two shared statistics: every Sharpe
+in the package (headline ``calc_metrics``, bootstrap CI, Monte Carlo path
+metrics) is ``sharpe_ratio``, and every drawdown is ``max_drawdown``, so a
+report can never show two different values for the same named number. That
+deliberately deviates from the Vibe-Trading original, whose validation module
+computed Sharpe with numpy's population std (ddof=0) against this module's
+sample std (ddof=1).
+
 pandas/numpy are imported lazily inside functions; this module is stdlib-only
 at import time.
 """
@@ -16,7 +24,8 @@ at import time.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+import math
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 # Weekly and monthly bars count calendar periods, whatever the market's
@@ -36,11 +45,11 @@ class TradeRecord:
         exit_price: Exit execution price (NAV).
         entry_time: Entry timestamp.
         exit_time: Exit timestamp.
-        size: Shares traded over the round trip.
+        size: Shares bought across the whole round trip.
         pnl: Realised profit/loss in cash terms, net of fees.
-        pnl_pct: Realised P&L as a fraction of entry cost.
-        exit_reason: Why the position closed ("rebalance" / "final" / ...).
-        holding_bars: Bars held between entry and exit.
+        pnl_pct: Realised P&L as a fraction of total entry cost.
+        exit_reason: Why the position closed ("rebalance" / "final").
+        holding_bars: Bar-index span held between entry and exit.
         commission: Total fees paid across the round trip.
     """
 
@@ -55,10 +64,6 @@ class TradeRecord:
     exit_reason: str
     holding_bars: float
     commission: float
-    direction: int = 1
-    leverage: float = 1.0
-    entry_margin: float = 0.0
-    exit_margin: float = 0.0
 
 
 def calc_bars_per_year(interval: str = "1D", source: Optional[str] = None) -> int:
@@ -317,6 +322,62 @@ def calc_turnover_series(positions: Any) -> Any:
     return 0.5 * (filled - prev).abs().sum(axis=1)
 
 
+def sharpe_ratio(returns: Any, bars_per_year: int = 252) -> float:
+    """Annualised Sharpe ratio from per-bar returns (sample std, ddof=1).
+
+    THE canonical Sharpe for the whole package: ``calc_metrics``, the
+    bootstrap CI, the walk-forward windows, and the Monte Carlo path metrics
+    all report this one number, so a report never shows two different
+    "Sharpes" for the same series. Build the returns with ``bar_returns`` for
+    the same convention at every call site.
+
+    Args:
+        returns: Per-bar simple returns (Series or array-like).
+        bars_per_year: Annualisation factor.
+
+    Returns:
+        The annualised Sharpe, or 0.0 when the sample is too small
+        (``len < 2``), the standard deviation is non-finite, or the result
+        overflows — a Sharpe that cannot be computed honestly reads as 0.
+    """
+    import numpy as np
+
+    values = np.asarray(returns, dtype=float).ravel()
+    if values.size < 2:
+        return 0.0
+    std = float(np.std(values, ddof=1))
+    if not math.isfinite(std):
+        return 0.0
+    sharpe = float(values.mean() / (std + 1e-10) * math.sqrt(bars_per_year))
+    return sharpe if math.isfinite(sharpe) else 0.0
+
+
+def max_drawdown(equity: Any, *, initial: Optional[float] = None) -> float:
+    """Largest peak-to-trough decline of an equity curve.
+
+    THE canonical drawdown for the whole package (headline metrics, Monte
+    Carlo path metrics, and walk-forward windows all call this).
+
+    Args:
+        equity: Equity Series.
+        initial: Optional high-water mark floor. ``calc_metrics`` passes
+            ``initial_cash`` — the book starts there before the first
+            recorded bar, so a first-bar loss is a real drawdown; path and
+            window callers leave it unset so the running peak starts at the
+            first value.
+
+    Returns:
+        The most negative drawdown (0.0 when there is none), with a zero peak
+        guarded to 1 so a wiped-out book cannot divide by zero.
+    """
+    peak = equity.cummax()
+    if initial is not None:
+        peak = peak.clip(lower=float(initial))
+    dd = (equity - peak) / peak.replace(0, 1)
+    value = float(dd.min()) if len(dd) else 0.0
+    return value if math.isfinite(value) else 0.0
+
+
 def calc_metrics(
     equity_curve: Any,
     trades: List[TradeRecord],
@@ -356,10 +417,11 @@ def calc_metrics(
     else:
         bpy = bars_per_year
 
-    port_ret = equity_curve.pct_change().fillna(0.0)
-    # Equity that touches zero then recovers (100 → 0 → 50) yields non-finite
-    # pct_change values; risk ratios are reported as 0 in that case.
-    returns_finite = bool(np.isfinite(port_ret.to_numpy(dtype=float, copy=False)).all())
+    # One return series for the whole package: ``bar_returns`` defines every
+    # bar's return (undefined bars after a non-positive prior price report
+    # 0.0 with a warning), so the Sharpe below is the same number the
+    # bootstrap CI reports for this curve.
+    port_ret = bar_returns(equity_curve, label="equity")
 
     total_ret = float(equity_curve.iloc[-1] / initial_cash - 1)
     # A book that ends at or below zero equity (``total_ret <= -1``) would
@@ -379,45 +441,33 @@ def calc_metrics(
         if not np.isfinite(ann_ret):
             ann_ret = float("inf")
     # ``Series.std()`` uses ddof=1, so a single-observation return series
-    # yields NaN and poisons the Sharpe ratio; guard the small sample the same
-    # way ``downside_std`` is guarded below.
-    vol = float(port_ret.std()) if len(port_ret) > 1 and returns_finite else 0.0
-    sharpe = (
-        float(port_ret.mean() / (vol + 1e-10) * np.sqrt(bpy))
-        if returns_finite
-        else 0.0
-    )
-    if not np.isfinite(sharpe):
-        sharpe = 0.0
+    # yields NaN; guard the small sample the same way ``downside_std`` is
+    # guarded below.
+    vol = float(port_ret.std()) if len(port_ret) > 1 else 0.0
+    sharpe = sharpe_ratio(port_ret, bpy)
 
     # The account starts at ``initial_cash`` before the first recorded bar, so
     # that value is the initial high-water mark. Using only observed equity
     # understates a first-bar loss and makes drawdown nonsensical after equity
     # crosses zero.
-    peak = equity_curve.cummax().clip(lower=float(initial_cash))
-    dd = (equity_curve - peak) / peak.replace(0, 1)
-    max_dd = float(dd.min())
+    max_dd = max_drawdown(equity_curve, initial=initial_cash)
 
     calmar = ann_ret / abs(max_dd) if abs(max_dd) > 1e-10 else 0.0
 
-    if returns_finite:
-        downside = port_ret[port_ret < 0]
-        downside_std = float(downside.std()) if len(downside) > 1 else 1e-10
-        sortino = float(port_ret.mean() / (downside_std + 1e-10) * np.sqrt(bpy))
-    else:
-        sortino = 0.0
-    if not np.isfinite(sortino):
+    downside = port_ret[port_ret < 0]
+    downside_std = float(downside.std()) if len(downside) > 1 else 1e-10
+    sortino = float(port_ret.mean() / (downside_std + 1e-10) * np.sqrt(bpy))
+    if not math.isfinite(sortino):
         sortino = 0.0
 
     trade_stats = win_rate_and_stats(trades)
 
-    turnover_values = (
-        turnover_series.reindex(equity_curve.index).fillna(0.0).clip(lower=0.0)
-        if turnover_series is not None
-        else calc_turnover_series(positions)
-        if positions is not None
-        else pd.Series(dtype=float)
-    )
+    if turnover_series is not None:
+        turnover_values = turnover_series.reindex(equity_curve.index).fillna(0.0).clip(lower=0.0)
+    elif positions is not None:
+        turnover_values = calc_turnover_series(positions)
+    else:
+        turnover_values = pd.Series(dtype=float)
     avg_turnover = float(turnover_values.mean()) if len(turnover_values) > 0 else 0.0
     total_turnover = float(turnover_values.sum()) if len(turnover_values) > 0 else 0.0
 
@@ -431,21 +481,17 @@ def calc_metrics(
         excess = total_ret - bench_return
         aligned_bench = bench_ret.reindex(port_ret.index).fillna(0.0)
         active_ret = port_ret - aligned_bench
-        # Same ddof=1 small-sample guard as ``vol`` / ``downside_std`` so the
-        # information ratio stays finite for a single-observation series.
-        active_std = float(active_ret.std()) if len(active_ret) > 1 and returns_finite else 0.0
-        ir = (
-            float(active_ret.mean() / (active_std + 1e-10) * np.sqrt(bpy))
-            if returns_finite
-            else 0.0
-        )
-        if not np.isfinite(ir):
-            ir = 0.0
-        tracking_error = active_std * np.sqrt(bpy) if returns_finite else 0.0
-        if not np.isfinite(tracking_error):
+        # The information ratio is the Sharpe of active returns — same
+        # canonical estimator, so it stays comparable with the headline Sharpe.
+        # Non-finite active returns (an inf in a caller-supplied benchmark)
+        # report 0, matching the old explicit guard.
+        ir = sharpe_ratio(active_ret, bpy)
+        active_std = float(active_ret.std()) if len(active_ret) > 1 else 0.0
+        tracking_error = active_std * np.sqrt(bpy)
+        if not math.isfinite(tracking_error):
             tracking_error = 0.0
         bench_var = float(aligned_bench.var()) if len(aligned_bench) > 1 else 0.0
-        if returns_finite and bench_var > 0:
+        if math.isfinite(bench_var) and bench_var > 0:
             covariance = float(port_ret.cov(aligned_bench))
             bench_beta = covariance / bench_var
             if not np.isfinite(bench_beta):

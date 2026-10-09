@@ -98,9 +98,13 @@ def test_backtest_validation_block_runs():
     )
     v = result["validation"]
     assert v is not None and set(v) == {"monte_carlo", "bootstrap", "walk_forward"}
-    # 2 trades / 4 returns are too small — error branches, still reported.
+    # 2 trades is too few for the Monte Carlo permutation test. The bootstrap
+    # now measures the same 5-bar return series calc_metrics uses (leading
+    # bar included), so a 5-bar curve yields a real — and very wide — CI
+    # instead of an error; a 4-bar curve still errors (see below).
     assert "error" in v["monte_carlo"]
-    assert "error" in v["bootstrap"]
+    assert "error" not in v["bootstrap"]
+    assert v["bootstrap"]["ci_lower"] <= v["bootstrap"]["observed_sharpe"] <= v["bootstrap"]["ci_upper"]
     assert "error" not in v["walk_forward"]
 
 
@@ -191,7 +195,7 @@ def _equity4() -> pd.Series:
 
 def _one_trade() -> TradeRecord:
     return TradeRecord(
-        symbol="A", direction=1, entry_price=1.0, exit_price=1.1,
+        symbol="A", entry_price=1.0, exit_price=1.1,
         entry_time=pd.Timestamp("2026-01-01"), exit_time=pd.Timestamp("2026-01-03"),
         size=1000.0, pnl=100.0, pnl_pct=0.1, exit_reason="rebalance",
         holding_bars=2, commission=1.5,
@@ -446,6 +450,221 @@ def test_evidence_save_roundtrip(tmp_path):
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     assert data["run_id"] == "t2"
     assert data["registry"]["x"]["test.source"]["value"] == 42.0
+
+
+# ─── canonical statistics shared by metrics + validation ───
+
+
+def test_sharpe_is_one_number_across_modules():
+    # One statistic, one definition: the headline Sharpe, the bootstrap CI's
+    # observed Sharpe, and the canonical helper must agree for the same curve
+    # at the same annualisation (these used to be two different numbers —
+    # pandas ddof=1 with a leading 0.0 bar vs numpy ddof=0 with dropna).
+    equity = pd.Series(
+        np.linspace(100, 130, 60) + np.random.default_rng(7).normal(0, 1, 60),
+        index=pd.date_range("2026-01-01", periods=60, freq="D"),
+    )
+    m = metrics.calc_metrics(equity, [], 100.0, bars_per_year=252)
+    bs = validation.bootstrap_sharpe_ci(equity, n_bootstrap=50, bars_per_year=252)
+    assert m["sharpe"] == pytest.approx(bs["observed_sharpe"], abs=1e-3)  # bs rounds to 4dp
+    assert m["sharpe"] == pytest.approx(
+        metrics.sharpe_ratio(metrics.bar_returns(equity), 252), rel=1e-12
+    )
+    # calendar-span annualisation resolves identically for both consumers
+    bpy = metrics.effective_bars_per_year(equity.index)
+    assert bpy != 252
+    assert metrics.calc_metrics(equity, [], 100.0, bars_per_year=None)["sharpe"] == (
+        pytest.approx(metrics.sharpe_ratio(metrics.bar_returns(equity), bpy), rel=1e-12)
+    )
+
+
+def test_sharpe_ratio_small_sample_and_non_finite_guard():
+    assert metrics.sharpe_ratio([]) == 0.0
+    assert metrics.sharpe_ratio([0.1]) == 0.0
+    assert metrics.sharpe_ratio([0.1, float("nan"), 0.1]) == 0.0
+    assert metrics.sharpe_ratio([0.0, 0.0, 0.0]) == 0.0
+
+
+def test_max_drawdown_canonical_across_modules():
+    equity = pd.Series([100.0, 120.0, 90.0, 110.0, 80.0],
+                       index=pd.date_range("2026-01-01", periods=5))
+    expected = (80.0 - 120.0) / 120.0
+    assert metrics.max_drawdown(equity) == pytest.approx(expected)
+    assert metrics.calc_metrics(equity, [], 100.0)["max_drawdown"] == pytest.approx(expected)
+    wf = validation.walk_forward_analysis(equity, [], n_windows=1)
+    assert wf["windows"][0]["max_dd"] == pytest.approx(expected)
+
+
+def test_bar_returns_guards_non_positive_prior_price():
+    close = pd.Series([0.0, 1.0, 2.0], index=pd.date_range("2026-01-01", periods=3))
+    ret = metrics.bar_returns(close, label="guard")
+    assert ret.iloc[0] == 0.0
+    # bar 1 follows a 0.0 prior price: the return is undefined and reports
+    # 0.0 — NOT pct_change's +inf that fillna cannot neutralise.
+    assert ret.iloc[1] == 0.0
+    assert ret.iloc[2] == pytest.approx(1.0)
+
+
+def test_bar_returns_matches_pct_change_when_all_positive():
+    close = pd.Series([1.0, 1.1, 1.21, 1.331], index=pd.date_range("2026-01-01", periods=4))
+    expected = close.pct_change().fillna(0.0)
+    assert metrics.bar_returns(close).tolist() == pytest.approx(expected.tolist())
+
+
+def test_buy_and_hold_return_telescopes_and_refuses_bad_prices():
+    close = pd.Series([2.0, 3.0, 6.0], index=pd.date_range("2026-01-01", periods=3))
+    assert metrics.buy_and_hold_return(close) == pytest.approx(2.0)  # 6/2 - 1
+    assert metrics.buy_and_hold_return(close.iloc[:1]) is None
+    zero_entry = pd.Series([0.0, 1.0], index=pd.date_range("2026-01-01", periods=2))
+    assert metrics.buy_and_hold_return(zero_entry) is None
+    inf_exit = pd.Series([1.0, float("inf")], index=pd.date_range("2026-01-01", periods=2))
+    assert metrics.buy_and_hold_return(inf_exit) is None
+
+
+def test_effective_bars_per_year_measures_calendar_span():
+    weekly = pd.date_range("2026-01-01", periods=52, freq="W")
+    # 52 weekly bars span 51*7 = 357 calendar days: 52 / (357/365.25) ≈ 53.2
+    assert metrics.effective_bars_per_year(weekly) == 53
+    assert metrics.effective_bars_per_year(pd.DatetimeIndex([])) == 252  # default
+    intraday = pd.date_range("2026-01-01", periods=4, freq="h")
+    assert metrics.effective_bars_per_year(intraday) == 4  # sub-day span = one year
+
+
+def test_by_symbol_and_by_exit_reason_stats():
+    a = _one_trade()
+    b = TradeRecord(**{**a.__dict__, "symbol": "B", "pnl": -50.0, "exit_reason": "final"})
+    by_sym = metrics.by_symbol_stats([a, b])
+    assert set(by_sym) == {"A", "B"}
+    assert by_sym["A"]["count"] == 1 and by_sym["A"]["win_rate"] == 1.0
+    assert by_sym["B"]["total_pnl"] == pytest.approx(-50.0)
+    assert by_sym["B"]["avg_pnl"] == pytest.approx(-50.0)
+    by_reason = metrics.by_exit_reason_stats([a, b])
+    assert by_reason == {
+        "rebalance": {"count": 1, "total_pnl": pytest.approx(100.0)},
+        "final": {"count": 1, "total_pnl": pytest.approx(-50.0)},
+    }
+
+
+def test_calc_turnover_series_full_rotation_counts_one():
+    pos = pd.DataFrame({"A": [1.0, 0.0, 0.0], "B": [0.0, 1.0, 1.0]},
+                       index=pd.date_range("2026-01-01", periods=3))
+    t = metrics.calc_turnover_series(pos)
+    assert t.iloc[0] == pytest.approx(0.5)  # initial allocation = entry from cash
+    assert t.iloc[1] == pytest.approx(1.0)  # full rotation A -> B
+    assert t.iloc[2] == pytest.approx(0.0)
+    assert len(metrics.calc_turnover_series(pd.DataFrame())) == 0
+
+
+def test_to_jsonable_strict_rfc8259():
+    raw = {
+        "nan": float("nan"),
+        "inf": float("inf"),
+        "np_scalar": np.float64(1.5),
+        "np_int": np.int64(3),
+        "list": [1.0, float("nan")],
+        "nested": {"arr": np.array([1.0, float("inf")])},
+    }
+    out = validation.to_jsonable(raw)
+    assert out["nan"] is None and out["inf"] is None
+    assert out["list"] == [1.0, None]
+    assert out["nested"]["arr"] == [1.0, None]
+    assert out["np_scalar"] == 1.5 and out["np_int"] == 3
+    json.dumps(out, allow_nan=False)  # strict JSON round-trips
+
+
+# ─── engine contract guards ───
+
+
+def test_backtest_positions_zero_not_nan_before_listing():
+    # A fund not yet listed has 0 shares; 0 * NaN must not leak into the
+    # public positions frame (the equity path was already guarded).
+    dates = pd.date_range("2026-01-01", periods=4, freq="D")
+    nav = pd.DataFrame({"A": [1.0, 1.0, 1.0, 1.0], "B": [np.nan, np.nan, 2.0, 2.0]},
+                       index=dates)
+    weights = pd.DataFrame({"A": [0.5, 0.0], "B": [0.0, 0.5]}, index=[dates[0], dates[2]])
+    result = engine.backtest(weights, nav)
+    assert not result["positions"].isna().any().any()
+    assert result["positions"].loc[dates[0], "B"] == 0.0
+    assert result["positions"].loc[dates[2], "B"] == 0.0
+    assert bool(np.isfinite(result["equity"].to_numpy()).all())
+
+
+def test_backtest_rejects_rows_summing_above_one():
+    dates = pd.date_range("2026-01-01", periods=3, freq="D")
+    nav = pd.DataFrame({"A": [1.0] * 3, "B": [1.0] * 3}, index=dates)
+    weights = pd.DataFrame({"A": [1.0], "B": [1.0]}, index=[dates[0]])
+    with pytest.raises(ValueError, match="exceed 1"):
+        engine.backtest(weights, nav)
+
+
+def test_backtest_rejects_duplicate_fund_columns():
+    dates = pd.date_range("2026-01-01", periods=3, freq="D")
+    nav = pd.DataFrame({"A": [1.0] * 3, "B": [1.0] * 3}, index=dates)
+    w = pd.DataFrame({"A": [0.5, 0.0], "B": [0.0, 0.0]}, index=[dates[0], dates[1]])
+    w.columns = ["A", "A"]
+    with pytest.raises(ValueError, match="duplicate fund columns"):
+        engine.backtest(w, nav)
+
+
+# ─── ledger robustness ───
+
+
+def test_ledger_review_leaves_malformed_check_unresolved(ledger_home, monkeypatch):
+    from quant import ledger
+
+    monkeypatch.setattr(ledger, "_latest_nav", lambda code: 1.5)
+    hid = ledger.add("y", "A", "inv", "2026-01-01",
+                     check={"type": "nav_above", "level": 1.0})
+    # Simulate a hand-edited / externally-written line: parseable JSON with a
+    # malformed check. review() must leave it open, not crash on it.
+    path = ledger_home / "quant_hypotheses.jsonl"
+    entry = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+    entry["check"] = {"type": "nav_above", "level": None}
+    path.write_text(json.dumps(entry) + "\n", encoding="utf-8")
+
+    out = ledger.review(today="2026-06-01")
+    assert out["resolved"] == []
+    assert [e["id"] for e in out["unresolved"]] == [hid]
+    assert ledger.get(hid)["status"] == "open"
+
+
+# ─── evidence robustness ───
+
+
+def test_evidence_save_sanitises_non_finite(tmp_path):
+    from quant import evidence
+
+    run = evidence.new_run(run_id="nan")
+    run.record("nav", pd.Series([1.0, float("nan"), 1.2]), "finance.rbsa.fund_nav:A")
+    run.record("sharpe", float("inf"), "quant.engine.backtest")
+    path = run.save(str(tmp_path / "ev" / "run.json"))
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    assert data["registry"]["nav"]["finance.rbsa.fund_nav:A"]["values"] == [1.0, None, 1.2]
+    assert data["registry"]["sharpe"]["quant.engine.backtest"]["value"] is None
+
+
+def test_evidence_check_reports_match_strength_and_two_tuple_claims():
+    from quant import evidence
+
+    run = evidence.new_run(run_id="match")
+    run.record("sharpe", 1.23, "quant.engine.backtest")
+    run.record("nav", [1.0, 1.1, 1.2], "finance.rbsa.fund_nav:A")
+    run.record("big", pd.Series(np.linspace(0.0, 100.0, 1500)), "quant.engine.backtest")
+
+    out = run.check([
+        ("scalar value", 1.23, "quant.engine.backtest"),
+        ("list member", 1.1, "finance.rbsa.fund_nav:A"),
+        ("extents range", 50.0, "quant.engine.backtest"),
+        ("two-tuple claim", 1.23),  # source defaults to any
+        ("absent", 999.0),  # outside every recorded value AND every extent
+    ])
+    by = {r["label"]: r for r in out}
+    assert by["scalar value"]["match"] == "value"
+    assert by["list member"]["match"] == "member"
+    assert by["extents range"]["match"] == "range"
+    assert by["extents range"]["status"] == "found"
+    assert by["two-tuple claim"]["status"] == "found"
+    assert by["absent"]["status"] == "not_found" and by["absent"]["match"] is None
 
 
 # ─── import hygiene ───

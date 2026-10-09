@@ -23,27 +23,33 @@ API map:
 - ``quant.backtest(weights, nav, *, initial_cash=1e6, subscribe_fee=0.0015,
   redeem_fee_schedule=((7, 0.015), (30, 0.005), (None, 0.0)),
   validation=None) -> dict`` — daily fund backtester (engine.py). Weights row
-  at date t executes at date t+1's NAV (no same-day fills); rows need not sum
-  to 1, the remainder stays in cash. Redemption fees are per-lot by calendar
-  holding days, charged on sell notional. Returns {"equity", "trades",
-  "positions", "metrics", "validation", "total_fees"}. Raises ValueError on
-  duplicate dates, weights outside the NAV calendar, negative/non-finite
-  values.
+  at date t executes at date t+1's NAV (no same-day fills); rows must sum to
+  AT MOST 1 (the remainder stays in cash; a row above 1 raises rather than
+  silently levering). Redemption fees are per-lot by calendar holding days,
+  charged on sell notional. Returns {"equity", "trades", "positions",
+  "metrics", "validation", "total_fees"}. Raises ValueError on duplicate
+  dates, duplicate fund columns, weights outside the NAV calendar,
+  negative/non-finite values, or rows summing above 1.
 - ``quant.fetch_nav(*codes) -> DataFrame`` — daily NAV from 天天基金 via
   ``finance.rbsa.fund_nav`` (network; lazy import).
-- ``quant.validate(equity, trades, initial_cash, *, monte_carlo=None,
+- ``quant.validate(equity, trades, initial_capital, *, monte_carlo=None,
   bootstrap=None, walk_forward=None) -> dict`` — run the validation trio on an
   equity curve + completed trades (validation.py).
-- ``quant.metrics`` — annualisation, returns, win-rate, turnover, and
-  ``calc_metrics`` (ported from Vibe-Trading, MIT).
+- ``quant.metrics`` — annualisation, returns, win-rate, turnover,
+  ``calc_metrics`` (ported from Vibe-Trading, MIT), and the canonical
+  ``sharpe_ratio`` / ``max_drawdown`` shared by every module.
 - ``quant.validation`` — ``monte_carlo_test`` / ``bootstrap_sharpe_ci`` /
-  ``walk_forward_analysis`` / ``run_validation`` / ``to_jsonable`` (ported,
-  same math and default seeds).
+  ``walk_forward_analysis`` / ``run_validation`` / ``to_jsonable`` (ported
+  test constructions and default seeds). Sharpe/drawdown reuse the canonical
+  helpers in ``metrics`` (sample std, ddof=1), so the trio's Sharpes agree
+  numerically with the headline metrics'.
 - ``quant.ledger`` — hypothesis ledger (ledger.py): add/resolve/open/due/get/
   accuracy/review on an append-only JSONL at
-  ``$FINANCE_HOME/quant_hypotheses.jsonl``. review() auto-resolves ONLY
-  entries with an explicit ``check={"type": "nav_above"|"nav_below",
-  "level": float}`` and a resolvable NAV — it never guesses.
+  ``$FINANCE_HOME/quant_hypotheses.jsonl`` (FINANCE_HOME and the atomic
+  writers come from ``finance._state``). review() auto-resolves ONLY entries
+  with an explicit ``check={"type": "nav_above"|"nav_below",
+  "level": float}`` and a resolvable NAV — it never guesses, and a malformed
+  check stays open rather than crashing.
 - ``quant.evidence.new_run()`` — advisory provenance self-check: record
   fingerprints of produced data, then check that the values you cite in a
   write-up actually appear in what you recorded. Not an enforcement gate.
@@ -67,7 +73,7 @@ _MODULE_EXPORTS = {
     "metrics": ("TradeRecord", "calc_metrics", "calc_bars_per_year",
                 "effective_bars_per_year", "bar_returns", "buy_and_hold_return",
                 "win_rate_and_stats", "by_symbol_stats", "by_exit_reason_stats",
-                "calc_turnover_series"),
+                "calc_turnover_series", "sharpe_ratio", "max_drawdown"),
     "validation": ("monte_carlo_test", "bootstrap_sharpe_ci",
                    "walk_forward_analysis", "run_validation", "to_jsonable"),
 }
@@ -123,7 +129,7 @@ __all__ = [
     "TradeRecord", "calc_metrics", "calc_bars_per_year",
     "effective_bars_per_year", "bar_returns", "buy_and_hold_return",
     "win_rate_and_stats", "by_symbol_stats", "by_exit_reason_stats",
-    "calc_turnover_series",
+    "calc_turnover_series", "sharpe_ratio", "max_drawdown",
     "monte_carlo_test", "bootstrap_sharpe_ci", "walk_forward_analysis",
     "run_validation", "to_jsonable",
 ]

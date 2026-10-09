@@ -99,14 +99,34 @@ mcp.call_tool("名称", "工具名", {...})
 ```sh
 cd <本仓库>
 pnpm install && pnpm build   # 首次：装依赖并从 src 构建 packages/*/lib
-pnpm start                   # 等价于 DSH_HOME=$PWD/dsh-home npx -y @deepseek-ai/dsh@0.1.7-rc.2 --profile daimon-web
+npm install --prefix client/runtime   # 首次：把 dsh CLI 落到本地 (扁平布局，之后不再访问网络)
+pnpm start                   # 等价于 DSH_HOME=$PWD/dsh-home node client/runtime/.../dsh/lib/bin.js --profile daimon-web
 ```
 
-dsh CLI 固定为 `0.1.7-rc.2`（与 vendored 包依赖的 `@deepseek-ai/dsh-*` 钉版一致，不用浮动的 `@next`）。其中 `DSH_HOME` 指向的是仓库内自带的 `dsh-home` 目录（profile、会话、凭证等运行时数据都在里面）。
+dsh CLI 装在 `client/runtime/`（独立 `package.json` 用 **npm 扁平布局**固定 `@deepseek-ai/dsh@0.1.7-rc.2`，与 npx 缓存布局一致——上游有若干包把运行期依赖写进了 devDependencies，pnpm 严格布局装不齐；一次性安装后 `pnpm start` 和桌面客户端都走本地 `bin.js`，不再访问网络、不经 npx）。其中 `DSH_HOME` 指向的是仓库内自带的 `dsh-home` 目录（profile、会话、凭证等运行时数据都在里面）。
 
-运行后输出一个带 token 的 URL，浏览器打开即可（监听 `127.0.0.1:3180`）。打开 `/` 是**自建金融终端**（finance-board 接管的根路由，见下文「Web UI 架构」）；官方 dsh SPA 保留在 `/index.html` 作后门（同一道 token/cookie 门）。
+运行后输出一个带 token 的 URL，浏览器打开即可（监听 `127.0.0.1:3180`）。`/` 是官方 dsh SPA；**Finance 面板**是它的右侧栏 Finance tab（见下文「Web UI 架构」），官方界面原生入口，同一道 token/cookie 门。
 
 首次使用在 Web 设置页填 DeepSeek API key，凭证由 `credentials` 插件托管。
+
+### 桌面客户端（pywebview）
+
+不想每次敲 `npx`，可以走 `client/` 下的 pywebview 原生窗口客户端（Electron 的 Python 等价物：系统 WebView + JS↔Python 桥）：
+
+```sh
+pip3 install -r client/requirements.txt   # 只需一次
+npm install --prefix client/runtime       # 只需一次：dsh 落本地（若已装过可跳过）
+python3 client/daimon_client.py           # 拉起 dsh → 抓 token URL → 加载进原生窗口
+```
+
+窗口关闭时整个 dsh 进程组随之回收。打包成双击启动的 macOS `.app`：
+
+```sh
+pip3 install pyinstaller
+pyinstaller client/daimon_client.spec     # 产物 dist/Daimon.app
+```
+
+Web 页面里可通过 `window.pywebview.api.*` 调用客户端能力（系统「存储为」对话框、选目录、访达中显示、写剪贴板、外部链接交给系统浏览器等），见 `client/daimon_client.py` 的 `Api` 类。纯浏览器访问时这些 API 不存在，前端按需降级即可。
 
 `packages/*` 的 `lib/` 是构建产物、不进 git（`pnpm build` 经 turbo 用 tsdown 从 `src/` 单段构建 JS 与类型声明，测试为 `pnpm test`）；依赖方面，vendored 包之间的互相引用保留 `workspace:*`（由根 pnpm-workspace.yaml 解析为 link），对上游已发布包的依赖使用固定版本号。
 
@@ -123,7 +143,7 @@ daimon/
 │   ├── tool-python/             # 暴露给模型的 python 工具
 │   ├── rlm-harness/             # continual harness 抽象 seam（条目 + 精炼事件）
 │   ├── rlm-harness-local/       # harness 的 JSON 文件 provider（已接线）
-│   ├── finance-board/           # Finance 终端：/ 自建金融终端 SPA + /finance/api/* JSON + 异步任务 + 官方 SPA 内的旧版主面板（client bundle）
+│   ├── finance-board/           # Finance 面板（Form C）：官方 SPA 右侧栏 Finance tab（client bundle）+ /finance/api/* JSON + 异步任务
 │   └── rlm-bindings/            # 28 条 host_request 宿主绑定（已接线，自带 patch 自注入）
 └── dsh-home/profiles/daimon-web/
     ├── package.json             # bundle 列表 + link:../../../packages/* 相对链接
@@ -176,28 +196,22 @@ path = await finance.dashboard()    # 渲染自包含看板 HTML（无 JS 降级
 
 覆盖：理财通持仓/流水（需 `$FINANCE_HOME/.env` 的 `LCT_COOKIE`，失效抛 `FinanceAuthError`）、组合账本与看板操作记录双轨（`add_transaction` 记帐不上看板，`add_op` 上看板不动账本）、NAV 预测与 RBSA 结果、热点雷达、持仓穿透行业分析、预测命中率、基金库管理、可选 LLM 投研报告（`analyze()`，消耗 `MOONSHOT_API_KEY`/`KIMI_API_KEY` 配额，优先自己基于 `agent_context()` 推理）。金额单位为元；账本日期 `YYYYMMDD`，看板 ops 日期 `YYYY-MM-DD`。
 
-**Finance 终端三个入口**（都不依赖任何服务）：
+**Finance 面板三个入口**（都不依赖任何服务）：
 
-1. **自建金融终端** `http://127.0.0.1:3180/`——finance-board host 半用 exact 路由接管 `/`（优先于官方 SPA 的 fallback 席位），serve `src/terminal/` 打出的自建 SPA：全屏 Finance 终端（总览/持仓/热点/交易流水四个 tab + 快捷操作）+ 右侧聊天抽屉（会话列表/消息流/输入，⌘/Ctrl+B 切换）。终端面板数据来自 `/finance/api/snapshot`（finance skill 每次看板重渲时同步写出的 `state/ui_snapshot.json`），5 秒轮询 mtime 变更才重载；快捷操作：「记一笔」（= `finance.add_op`，卖出超持仓弹确认）、「生成日报」（= `run_daily_job`，异步 job）、「深度快照」（= 含行业穿透的 `ui_snapshot`）；异步任务经 `POST /finance/api/jobs` 起一次性 Python runner（同 kernel 解释器），状态写在 `state/ui_job_*.json`。聊天抽屉直接讲 dsh 浏览器传输层协议（见「Web UI 架构」）：文本流式、工具调用可折叠卡片、审批/提问横幅应答。
+1. **右侧栏 Finance tab**（主入口，Form C）——官方 SPA 右侧面板的内置 tab，与官方会话共享同一 agent/会话；总览/持仓/热点/交易流水四个 tab + 快捷操作。面板数据来自 `/finance/api/snapshot`（finance skill 每次看板重渲时同步写出的 `state/ui_snapshot.json`），5 秒轮询 mtime 变更才重载；快捷操作：「记一笔」（= `finance.add_op`，卖出超持仓弹确认）、「生成日报」（= `run_daily_job`，异步 job）、「深度快照」（= 含行业穿透的 `ui_snapshot`）；异步任务经 `POST /finance/api/jobs` 起一次性 Python runner（同 kernel 解释器），状态写在 `state/ui_job_*.json`。面板是官方 SPA 的客人：主题跟随宿主（借 `--dsw-alias-*` token，宿主切深浅面板自动跟随），daimon 身份只留磁贴结构与一个青色 accent。
 2. **静态看板** `http://127.0.0.1:3180/finance`——自包含 HTML，无 JS 降级/深链入口，渲染产物与会话内 `present` 看板共用。
 3. 会话内 `present` 看板文件 → 右侧栏 documentpreview 面板（sandboxed iframe，自动重载）。
 
-> `/finance/*` 路由与 webserver 其余部分一样无鉴权，靠 127.0.0.1 回环绑定保护；`/` 走与官方 SPA 相同的 authorizeIndex token/cookie 门。看板含个人资产数据，不要把 webserver 绑到非回环地址。
+> `/finance/*` 路由与 webserver 其余部分一样无鉴权，靠 127.0.0.1 回环绑定保护；官方 SPA 走 authorizeIndex token/cookie 门。看板含个人资产数据，不要把 webserver 绑到非回环地址。
 
 ---
 
-## Web UI 架构
+## Web UI 架构（Form C：官方 SPA 是应用本体）
 
-浏览器体验以自建金融终端为主，dsh 只做运行时（会话、模型路由、python 工具、REPL、finance skill 全部照旧）：
+浏览器体验 = 官方 dsh SPA；finance-board 不做自己的浏览器外壳（早期的 `/` 自建终端已退役），只提供官方界面里的一个面板：
 
-- **`/`（exact 路由）→ 自建终端**：`packages/finance-board` host 半 inject `webServer` + `connection`，handler 先 `ctx.connection.authorizeIndex(req, res)`（token 交换发 cookie + 303、无凭证 401 都由它响应），通过后 serve `lib/terminal/index.html`（内存缓存，`no-cache`）；`GET /terminal/app.js` 为 esbuild 产物（react 打进 bundle，无 client-loader 约束）。
-- **`/index.html`（fallback 席位）→ 官方 SPA 后门**：接管 `/` 后官方界面原样可用（同一道 authorizeIndex 门）；`src/client/` 的旧版 dsh 面板 bundle 仍在那里提供 Finance 主面板。
-- **传输层（绑定 dsh 0.1.7-rc.2，升级 dsh 需回归）**：
-  - unary：`POST /api/<ns>/<m>`，body `{type:"client-request", rpcId, method, payload:{args:{request:{...}}}}`，响应 `{type:"server-response", rpcId, result:{ok:true,value}|{ok:false,error}}`；
-  - stream：WebSocket `/api/remote.mux` 单连接多路复用，客户端 `{type:"open",streamId,endpoint,payload}`，服务端 `{type:"item"|"end"|"error",streamId,...}`，关流发 `{type:"cancel",streamId}`；断线指数退避重连（500ms→10s）并重开活跃流；
-  - `$events` 流（payload `{args:{}}`）：首帧 `ready` 给 `clientId`；waterfall 帧（`approval/request`、`user-questions/request`）必须经 `POST /api/$events/result` 回执 `{clientId,eventId,outcome}`，否则 agent 卡死——未知 waterfall 类型默认回 `{kind:"next"}` 放行；
-  - `session/follow` 流：首帧 `snapshot`（records + hasMore），随后持久事件 `{type:"event",event:{type,seq,time,data}}` 与 assistant-stream 增量帧。
-- **聊天抽屉 v1 能力边界**：文本流式、工具调用卡片（输出截断前 12 行）、审批/提问横幅。**不渲染**：图片附件预览、diff、present 富面板、子代理 UI——需要这些时从 `/index.html` 进官方 SPA。
+- **client 半（`packages/finance-board/src/client/`）**：注册一个 right-Sidebar tab 类型（`sidebarRightTabs`）+ 把面板体注入 `sidebar.right.pane.tab` 席位（对齐 ui-sidebar-files 的两段式注册）。bundle 由 tsdown 出 CJS、`scripts/wrap-client.mjs` 包成 dsh client loader 信封，唯一 runtime external 是 react。面板样式没有 CSS 加载通道，apply() 时注入一小份样式（`panel-styles.ts`）：`.fb-root` token 层借宿主的 `--dsw-alias-*`（随 `body[data-ds-dark-theme]` 自动翻转），accent 与红涨绿跌语义色按主题各一组。SVG 图表读不了 var()——`charts.tsx` 按 `document.body[data-ds-dark-theme]` 选 hex 调色板并在主题翻转时重渲染。
+- **host 半（`packages/finance-board/src/index.ts`）**：只 inject `webServer`，own `/finance*` 路由（`/finance` 静态看板 + `/finance/api/{status,snapshot,briefing,jobs,ops}`）；无 `/` 接管、无 connection 依赖。升级 dsh 需回归的是 sidebar-right 的 slot/tab 协议与 dsw token 名。
 
 ---
 
