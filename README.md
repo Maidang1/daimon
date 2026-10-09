@@ -103,30 +103,11 @@ npm install --prefix client/runtime   # 首次：把 dsh CLI 落到本地 (扁�
 pnpm start                   # 等价于 DSH_HOME=$PWD/dsh-home node client/runtime/.../dsh/lib/bin.js --profile daimon-web
 ```
 
-dsh CLI 装在 `client/runtime/`（独立 `package.json` 用 **npm 扁平布局**固定 `@deepseek-ai/dsh@0.1.7-rc.2`，与 npx 缓存布局一致——上游有若干包把运行期依赖写进了 devDependencies，pnpm 严格布局装不齐；一次性安装后 `pnpm start` 和桌面客户端都走本地 `bin.js`，不再访问网络、不经 npx）。其中 `DSH_HOME` 指向的是仓库内自带的 `dsh-home` 目录（profile、会话、凭证等运行时数据都在里面）。
+dsh CLI 装在 `client/runtime/`（独立 `package.json` 用 **npm 扁平布局**固定 `@deepseek-ai/dsh@0.1.7-rc.2`，与 npx 缓存布局一致——上游有若干包把运行期依赖写进了 devDependencies，pnpm 严格布局装不齐；一次性安装后 `pnpm start` 走本地 `bin.js`，不再访问网络、不经 npx）。其中 `DSH_HOME` 指向的是仓库内自带的 `dsh-home` 目录（profile、会话、凭证等运行时数据都在里面）。
 
-运行后输出一个带 token 的 URL，浏览器打开即可（监听 `127.0.0.1:3180`）。`/` 是官方 dsh SPA；**Finance 面板**是它的右侧栏 Finance tab（见下文「Web UI 架构」），官方界面原生入口，同一道 token/cookie 门。
+运行后输出一个带 token 的 URL，浏览器打开即可（监听 `127.0.0.1:3180`）。`/` 是官方 dsh SPA。
 
 首次使用在 Web 设置页填 DeepSeek API key，凭证由 `credentials` 插件托管。
-
-### 桌面客户端（pywebview）
-
-不想每次敲 `npx`，可以走 `client/` 下的 pywebview 原生窗口客户端（Electron 的 Python 等价物：系统 WebView + JS↔Python 桥）：
-
-```sh
-pip3 install -r client/requirements.txt   # 只需一次
-npm install --prefix client/runtime       # 只需一次：dsh 落本地（若已装过可跳过）
-python3 client/daimon_client.py           # 拉起 dsh → 抓 token URL → 加载进原生窗口
-```
-
-窗口关闭时整个 dsh 进程组随之回收。打包成双击启动的 macOS `.app`：
-
-```sh
-pip3 install pyinstaller
-pyinstaller client/daimon_client.spec     # 产物 dist/Daimon.app
-```
-
-Web 页面里可通过 `window.pywebview.api.*` 调用客户端能力（系统「存储为」对话框、选目录、访达中显示、写剪贴板、外部链接交给系统浏览器等），见 `client/daimon_client.py` 的 `Api` 类。纯浏览器访问时这些 API 不存在，前端按需降级即可。
 
 `packages/*` 的 `lib/` 是构建产物、不进 git（`pnpm build` 经 turbo 用 tsdown 从 `src/` 单段构建 JS 与类型声明，测试为 `pnpm test`）；依赖方面，vendored 包之间的互相引用保留 `workspace:*`（由根 pnpm-workspace.yaml 解析为 link），对上游已发布包的依赖使用固定版本号。
 
