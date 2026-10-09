@@ -3,12 +3,22 @@
 `packages/` 下的 6 个包 vendor 自上游开源仓库 [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)（MIT license）。
 
 - 上游仓库：`git+https://github.com/deepseek-ai/deepseek-harness.git`
-- 上游目录：`packages/rlm/*`
+- 上游目录：`packages/rlm/*`（**上游 0.2.0 已删除该目录**，RLM 源码此后由本仓库自行维护）
 - 上游版本：`0.1.7-rc.1`（git tag `dsh-v0.1.7-rc.1`，commit SHA `46a7f68b0922371ce7144b668b90e377d8e799f4`）
+- dsh 运行时：`0.2.0-rc.2`（`client/runtime` 的 `@deepseek-ai/dsh` 与全部 `@deepseek-ai/dsh-*` 依赖）
 
-> **源码与依赖的版本错位说明**：vendored 源码取自 rc.1 tag，但对上游 sibling 包的依赖（`@deepseek-ai/dsh-*`）钉在 `0.1.7-rc.2`。
-> 即本仓库运行的是"rc.1 的 RLM 源码 + rc.2 的 dsh 运行时"。编译面兼容性由 `pnpm typecheck` 与 26 个 vitest spec 兜底；
-> 上游发布新 rc 后，应从对应 tag 重新 vendor 并对齐依赖，消除该错位。
+> **源码与依赖的版本错位说明**：vendored 源码取自 rc.1 tag（上游最后一个含 RLM 的版本），但对上游 sibling 包的依赖（`@deepseek-ai/dsh-*`）钉在 `0.2.0-rc.2`。
+> 即本仓库运行的是"rc.1 的 RLM 源码 + 0.2.0-rc.2 的 dsh 运行时"。
+> 升级 0.2.0-rc.2 时对全部直接依赖做了 `.d.ts` 逐文件 diff：`dsh-agent` / `dsh-subagent` / `dsh-goal` / `dsh-compaction` / `dsh-tools` / `dsh-llm` /
+> `dsh-token-meter` / `dsh-session-query` / `dsh-util-values` / `dsh-atomic-write` / `dsh-home-paths` / `dsh-brand` / `dsh-scope` / `dsh-timeout` /
+> `dsh-agent-preset-registry` 与 0.1.7-rc.2 完全一致；`dsh-session` 仅新增导出 `ToolCallRecovery`（纯增量，无破坏）。
+> 编译面兼容性由 `pnpm typecheck` 与 vitest spec 兜底（2026-10 升级时 9/9 任务全绿）。
+>
+> **0.2.0 运行时注意事项**：
+> - 上游 web-app bundle 移除了 `schedule` / `ui-schedule` / `time-context` 行（schedule 能力移入 `dsh-experimental-schedule-bundle`，daimon 不挂载）；
+>   新增 `desktop-product-telemetry` / `product-analytics`（仅 desktop profile 启用）与 `ui-settings-session-log`。
+> - 上游 0.2.0 提供 `@deepseek-ai/dsh-experimental-ptc-runtime-python`（无状态 Python PTC 运行时），**不是**持久 REPL 的替代；
+>   daimon 的持久 REPL 仍由本仓库 vendored 的 rlm-kernel-python 提供。
 
 ## 逐包清单
 

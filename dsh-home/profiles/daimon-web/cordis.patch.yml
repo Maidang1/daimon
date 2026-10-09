@@ -9,7 +9,8 @@
         name: '@deepseek-ai/dsh-persona'
         config:
           suffix: Your working directory is {{cwd}}.
-          prefix: You are daimon, a general-purpose personal agent powered by the
+          prefix: >-
+            You are daimon, a general-purpose personal agent powered by the
             {{model}} model. You help the user with software engineering,
             automation, data analysis, research, writing, and everyday tasks —
             using your persistent Python REPL, file tools, and subagent family.
@@ -96,10 +97,8 @@
 # Re-enable any block by deleting its entries.
 
 # --- 定时任务 ---
-- id: schedule
-  disabled: true
-- id: ui-schedule
-  disabled: true
+# 上游 0.2.0 已从 web-app bundle 移除 schedule/ui-schedule/time-context 行
+# (schedule 能力移入 dsh-experimental-schedule-bundle, daimon 不挂载), 无需再禁用
 
 # --- 子代理 ---
 # 已恢复 (rlm-bindings 接线需要): subagent (ctx.subagents 核心服务),
@@ -267,7 +266,7 @@
 - id: ui-settings-general
   name: "@deepseek-ai/dsh-client-ui-settings-general"
   config:
-    welcomeNoticeVersion: 2026-08-13.1
+    welcomeNoticeVersion: 2026-09-28.1
 - id: agent-preset-registry
   name: "@deepseek-ai/dsh-agent-preset-registry"
   config:
@@ -281,6 +280,17 @@
   name: "@deepseek-ai/dsh-client-ui-theme"
   config:
     preference: light
+- id: llm-pi-ai
+  name: "@deepseek-ai/dsh-llm-pi-ai"
+  config:
+    providers:
+      kimi-coding:
+        apiKeyEnv: KIMI_CODING_API_KEY
+- id: agent-default-model
+  name: "@deepseek-ai/dsh-agent-default-model"
+  config:
+    provider: kimi-coding
+    model: k3
 
 # --- RLM Python skills: 6 个移植自 prime-agent 的 skill 包 (goal/compact/refine/rlm_heartbeat/agent_message/agent_observe)
 # 随 vendored rlm-kernel-python 的 py/skills/ 发布; kernel 会自行把 py/skills 加进 PYTHONPATH, 无需此处配置 ---
