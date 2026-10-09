@@ -4,8 +4,10 @@ dsh-home/.anonymous-user-id
 dsh-home/sessions/
 dsh-home/storages/
 dsh-home/logs/
-dsh-home/finance/
 dsh-home/rlm/
+dsh-home/attachments/
+dsh-home/cache/
+dsh-home/llm-deepseek/
 dsh-home/profiles/*/.plugin-manager/
 dsh-home/profiles/*/pnpm-lock.yaml
 
@@ -15,6 +17,10 @@ node_modules/
 __pycache__/
 *.pyc
 .turbo/
+.impeccable/
+
+# vendored dsh CLI install (regenerate: npm --prefix client/runtime install)
+client/runtime/
 
 # build output of vendored packages (rebuild with `pnpm build`)
 packages/*/lib/
