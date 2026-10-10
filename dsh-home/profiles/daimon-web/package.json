@@ -7,7 +7,8 @@
     "@deepseek-ai/dsh-rlm-kernel-python": "link:../../../packages/rlm-kernel-python",
     "@deepseek-ai/dsh-skill-office": "link:../../../client/runtime/node_modules/@deepseek-ai/dsh-skill-office",
     "@deepseek-ai/dsh-tool-python": "link:../../../packages/tool-python",
-    "@local/dsh-learning-hub": "file:/Users/bytedance/codes/open-source/daimon/learning/plugin/dsh-learning-hub"
+    "@local/dsh-learning-hub": "file:/Users/bytedance/codes/open-source/daimon/learning/plugin/dsh-learning-hub",
+    "dsh-context": "^0.66.0"
   },
   "dsh": {
     "profile": {
@@ -21,7 +22,8 @@
         "@deepseek-ai/dsh-experimental-schedule-bundle",
         "@deepseek-ai/dsh-experimental-auto-review",
         "@deepseek-ai/dsh-experimental-agent-team-profile",
-        "@local/dsh-learning-hub"
+        "@local/dsh-learning-hub",
+        "dsh-context"
       ]
     }
   }
