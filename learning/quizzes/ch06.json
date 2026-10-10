@@ -2,27 +2,66 @@
   {
     "id": "ch06-q1",
     "chapter": "ch06",
-    "question": "dsh-learning-hub 的 client.js factory 为什么不能带副作用？",
+    "question": "`dsh --profile web` 启动时，patch 层的应用顺序是？",
     "options": [
-      "会导致内存泄漏",
-      "factory 只负责注册/声明，副作用须放进 apply 并用 ctx.effect 管理生命周期，否则插件卸载时无法清理",
-      "浏览器不允许",
-      "没有原因"
+      "用户层 → bundle 层 → --patch overlay",
+      "bundle 层（按 dsh.profile.bundles 顺序）→ profile 用户层 → $DSH_HOME/cordis.patch.yml → --patch overlay → telemetry 开关",
+      "--patch overlay → bundle 层 → 用户层",
+      "只应用 bundle 层，用户层需手动 include"
     ],
     "answer": 1,
-    "explanation": "ui-plugin.md 明确要求：factory 无副作用；样式/监听器/定时器在 apply 里经 ctx.effect 注册并返回清理函数，保证 HMR/卸载干净。"
+    "explanation": "profile-context.ts:63-75 的拼接顺序；home 层刻意高于 profile 层（机器级偏好全局生效），telemetry 开关最后压栈。"
   },
   {
     "id": "ch06-q2",
     "chapter": "ch06",
-    "question": "host 半 HTTP 路由对文件路径做 confinement 的根本原因是？",
+    "question": "用户 patch 写了 `- id: nonexist\\n  disabled: true`，启动会？",
     "options": [
-      "性能优化",
-      "webserver 不提供服务器级认证，自定义路由必须自己守住边界，防止路径穿越读写任意文件",
-      "为了缓存",
-      "为了好看"
+      "抛错退出",
+      "忽略该文件其余 patch",
+      "警告并跳过这一条，其余照常",
+      "创建空条目再禁用"
+    ],
+    "answer": 2,
+    "explanation": "applyEntryPatches 匹配不到 id 只 warn + continue（include/index.ts:109-113）——同一 overlay 可跨 surface 复用，但代价是拼错 id 静默无效，所以改完要 --dump-config 验证。"
+  },
+  {
+    "id": "ch06-q3",
+    "chapter": "ch06",
+    "question": "patch 对某行的 `config` 如何合并？",
+    "options": [
+      "深合并",
+      "按键浅合并",
+      "整体替换",
+      "拒绝修改"
+    ],
+    "answer": 2,
+    "explanation": "include/index.ts:120-123 直接 target[key] = value；dsh-base patch 头注释明确「整段替换」，所以 mode 相关配置必须每层完整重述。"
+  },
+  {
+    "id": "ch06-q4",
+    "chapter": "ch06",
+    "question": "一个包声明了 `dsh.client` 但 `exports` 没有 \"./client\"，后果是？",
+    "options": [
+      "仅浏览器功能缺失，无报错",
+      "client-modules 报组合错误",
+      "自动回退到主入口",
+      "host 半也无法激活"
     ],
     "answer": 1,
-    "explanation": "dsh-host-webserver 明确不管认证；route owner 自负请求策略。learning-hub 因此把读写严格限制在 learning/ 根内并拒绝 '..' 与非法字符。"
+    "explanation": "client-modules/src/index.ts:847 硬校验——双面声明必须成双，组合 __DSH_BOOT__ 时报错。"
+  },
+  {
+    "id": "ch06-q5",
+    "chapter": "ch06",
+    "question": "把 web profile 的默认 agent preset 从 standard 换成 minimal，正确机制是？",
+    "options": [
+      "删掉 presets/standard.patch.yml 文件",
+      "改注册表 config 的 default（部署默认）或 selectedDefault（用户设置，volatile）",
+      "在 loader patch 里 disabled 掉 preset-standard 行",
+      "重排 dsh.profile.bundles"
+    ],
+    "answer": 1,
+    "explanation": "agent-preset-registry：defaultId = selectedDefault.get() ?? config.default；禁用声明行只会让该 preset 从花名册消失，并不改变默认选择。"
   }
 ]

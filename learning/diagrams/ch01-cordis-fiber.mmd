@@ -1,0 +1,14 @@
+%% 第 1 章 · fiber 树与服务解析（属性访问即服务解析）
+flowchart TD
+    Root["root fiber<br/>state: ACTIVE"] --> A["fiber A: loader 插件<br/>provides: loader"]
+    Root --> B["fiber B: llm 插件<br/>provides: llm"]
+    A --> C["fiber C: 业务插件<br/>inject: [llm]"]
+    B -. "notify('llm') 唤醒依赖方<br/>reflect.ts:314" .-> C
+    C -->|"④ ctx.llm 沿 fiber 链向上找<br/>reflect.ts:153-166"| B
+    subgraph PROXY["ctx 的 Proxy get 四级解析（reflect.ts:135）"]
+        P1["① symbol/then/数字/_开头 → 透传"]
+        P2["② 原型真实方法（extend/fiber）→ traceable 包装"]
+        P3["③ accessor/mixin（on/plugin）→ 转发到服务"]
+        P4["④ 沿 fiber 链查 store → 服务实现"]
+        P1 --> P2 --> P3 --> P4
+    end

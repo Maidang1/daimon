@@ -2,27 +2,66 @@
   {
     "id": "ch02-q1",
     "chapter": "ch02",
-    "question": "agent loop 中一次工具调用发生在哪个层级？",
+    "question": "用户在一个 turn 进行中调用 `agent.steer(msg)`，消息何时进入模型上下文？",
     "options": [
-      "turn 之外",
-      "step 之内：一个 step 内模型产出工具调用并执行",
-      "会话恢复时",
-      "压缩时"
+      "立即中断当前模型流并重新请求",
+      "当前 step 结束后，在下一个 step 边界被认领，经 agent/pre-step waterfall 进入",
+      "直接拼进当前请求的 messages 尾部",
+      "等 turn 结束后作为新 turn 的第一条消息"
     ],
     "answer": 1,
-    "explanation": "turn 由若干 step 组成，每个 step 是一次模型流式响应 + 其中的工具调用执行；见 docs/agent-lifecycle.zh.md。"
+    "explanation": "steer = send(input, 'next-step', wakeup=true)（agent.ts:167-169），step 边界 inbox.claim 拿走全部 next-step（inbox.ts:109-114），只在 step 之间生效，不打断进行中的流。D 是 followup 的语义。"
   },
   {
     "id": "ch02-q2",
     "chapter": "ch02",
-    "question": "inbox 机制解决的问题是？",
+    "question": "某 turn 的第 2 个 step 因 max-tokens 结束，第 3 个 step 正常 completed，turn/end 的 reason 是？",
     "options": [
-      "接收邮件",
-      "在 agent 回合执行中途插入用户新消息并妥善处理",
-      "压缩上下文",
-      "持久化会话"
+      "completed",
+      "max-tokens",
+      "error",
+      "aborted"
     ],
     "answer": 1,
-    "explanation": "用户在 agent 运行中发的新消息进入 inbox，loop 在 step 边界处理；见 packages/core/agent-loop/src/inbox.ts。"
+    "explanation": "max-tokens 粘性规则（agent.ts:343）：正常完成不能降级已触顶的 turn。"
+  },
+  {
+    "id": "ch02-q3",
+    "chapter": "ch02",
+    "question": "工具并发执行时，多条 tool/result 事件的落盘顺序由什么保证？",
+    "options": [
+      "工具完成的先后顺序",
+      "Promise.race 返回顺序",
+      "模型发出 tool-call 的顺序（模型序），由 commitReady 只推进连续前缀保证",
+      "工具名字典序"
+    ],
+    "answer": 2,
+    "explanation": "执行可乱序（tool-calls.ts:222 race），但提交循环只消费连续已就绪槽位（tool-calls.ts:147-161），保证日志与模型调用顺序一致，回放才有效。"
+  },
+  {
+    "id": "ch02-q4",
+    "chapter": "ch02",
+    "question": "模型请求流中途失败（非 abort），driver 首先做什么？",
+    "options": [
+      "直接 turn/end{error}",
+      "落 assistant/attempt 事件，然后跑 agent/request-error waterfall 给插件重试机会",
+      "自动指数退避重试三次",
+      "丢弃本次 attempt 的所有 chunk"
+    ],
+    "answer": 1,
+    "explanation": "finish 为 error/aborted 时先 settle 落盘 compact stream（agent.ts:507-509），再发 waterfall（agent.ts:511-520）；仅当插件返回 retry 才同 step 重试，且重试不重复 pre-step 与用户消息准入。循环本身不带退避策略。"
+  },
+  {
+    "id": "ch02-q5",
+    "chapter": "ch02",
+    "question": "下列哪一项**不会**被持久化到 session 日志？",
+    "options": [
+      "agent/inbox/spliced（排队了一条 followup）",
+      "agent/assistant-stream 的 chunk 帧",
+      "assistant/message（内嵌 compact stream）",
+      "request/header"
+    ],
+    "answer": 1,
+    "explanation": "agent/* 是实时协调接口，瞬态不落盘；回放读的是 assistant/message 或 assistant/attempt 内嵌的 compact stream。想做持久化却监听 assistant-stream 是典型坑。"
   }
 ]

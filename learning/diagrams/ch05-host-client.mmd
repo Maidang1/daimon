@@ -1,0 +1,25 @@
+%% 第 5 章 · Host / Client 分层与通信
+flowchart LR
+  subgraph Browser["浏览器 Client"]
+    UI["ui-* 插件<br/>ui-sidebar/ui-chat…"]
+    Slots["ui-slots 注册表"]
+    Renderer["ui-renderer<br/>renderSlot('root') 全应用仅一次"]
+    Models["api/*-controller/client<br/>Host 状态镜像（只读）"]
+    Conn["client-connection client 半"]
+    UI --> Slots --> Renderer
+    Models --> UI
+    Conn --> Models
+  end
+  subgraph Node["Node Host"]
+    GW["api/gateway<br/>/api/remote.mux WebSocket"]
+    Connection["connection<br/>/api 路由 + BrowserAuth"]
+    WS["webserver<br/>路由 + index 注入 __DSH_BOOT__"]
+    Ctrls["api/*-controller Host entry<br/>权威状态"]
+    Services["业务 services<br/>session/agent-loop/llm…"]
+    WS --> Connection
+    Connection --> Ctrls --> Services
+  end
+  Conn -- "HTTP /api（cookie 鉴权）" --> Connection
+  Conn -- "WS /api/remote.mux（stream+事件）" --> GW
+  GW --> Ctrls
+  WS -- "index.html + __DSH_BOOT__ + __ModuleLoader__" --> Browser

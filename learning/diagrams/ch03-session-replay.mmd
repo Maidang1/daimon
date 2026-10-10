@@ -1,0 +1,14 @@
+%% 第 3 章 · 会话恢复（resume）重放流程
+flowchart TD
+    A["resume: open(id,'write') 抢租约<br/>agent-loop/index.ts:879"] --> B["handle.read(0)<br/>SessionLogScanner 按行解码<br/>丢弃撕裂尾（物理修复）"]
+    B --> C{{"header.version == 4?"}}
+    C -- "否" --> D["相邻迁移链 vN→vN+1<br/>chain.ts:89 createStream<br/>源文件逐字节不动"]
+    C -- "是" --> E["当前逻辑事件数组"]
+    D --> E
+    E --> F["interruptedTurnClosers<br/>repair.ts:209 合成 step/end + turn/end（语义修复）"]
+    F --> G["closers 追加落盘 :892"]
+    G --> H["sessions.prepare: 整段 seed 灌入 Session 构造器"]
+    H --> I["surface 同步折叠（含压缩 replace 节点）"]
+    H --> J["投影注册表 session/created<br/>init → eager drive 追平"]
+    I --> K["deriveMessages() 派生模型历史<br/>core/session/index.ts:984"]
+    J --> K

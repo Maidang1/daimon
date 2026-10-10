@@ -2,40 +2,66 @@
   {
     "id": "ch01-q1",
     "chapter": "ch01",
-    "question": "在 Cordis 组合里，`ctx.inject('someService')` 的语义是？",
+    "question": "插件体里读 `ctx.notDeclared`（从未有人 provide 过），抛出的错误是？",
     "options": [
-      "立即返回服务实例，没有就返回 undefined",
-      "声明依赖：等服务就绪后才以注入了该服务的 ctx 执行回调",
-      "创建一个新服务实例",
-      "把服务注册到全局"
+      "service \"notDeclared\" has been registered",
+      "cannot get property \"notDeclared\" without inject",
+      "cannot get required service \"notDeclared\" in inactive context",
+      "cannot set property \"notDeclared\" without provide"
     ],
     "answer": 1,
-    "explanation": "inject 是依赖声明 + 回调延迟执行：依赖就绪前回调不运行，这正是 Cordis 管理插件初始化顺序的方式。"
+    "explanation": "错误对象在 vendor/cordis/src/reflect.ts:144 构造；沿 fiber 链爬到根仍未命中即此默认消息。C 只在「该 fiber 声明了 inject 但尚未激活」时出现（reflect.ts:160）。"
   },
   {
     "id": "ch01-q2",
     "chapter": "ch01",
-    "question": "cordis.patch.yml 中一条 `- insert:` 补丁的作用是？",
+    "question": "waterfall 监听器中不调用 `next()` 直接返回值，会发生什么？",
     "options": [
-      "覆盖同 id 行的 config",
-      "向组合中插入新的插件声明行",
-      "删除一行",
-      "只是注释，无实际作用"
+      "抛 TypeError: Invalid effect",
+      "跳过剩余监听器与内建行为，以该返回值作为整个 waterfall 的结果",
+      "内建行为仍会执行，返回值被忽略",
+      "回退到上一个监听器的返回值"
     ],
     "answer": 1,
-    "explanation": "insert 插入新行；不带 insert 的 id 行是按 id 覆盖既有行的 config。profile 补丁在所有 bundle 层之后应用。"
+    "explanation": "events.ts:234-242：next 是唯一进入下游的通道，不调它则剩余监听器与 inner（内建行为）都不执行。这正是「拦截/否决」语义的来源，工具审批依赖这一点。"
   },
   {
     "id": "ch01-q3",
     "chapter": "ch01",
-    "question": "为什么 dsh-persona 必须挂在 preset 内部而不能全局挂载？",
+    "question": "两个 context 分别 `ctx.isolate('store', someLabel)` 传入**同一个** label，之后各自 `provide('store', ...)`，结果是？",
     "options": [
-      "全局挂载性能太差",
-      "全局挂载会与提示词注册表自身的 deployment:persona-prefix 注册相撞并报错",
-      "preset 内部有缓存",
-      "只是约定，没有技术原因"
+      "两个作用域各自持有独立实现，互不可见",
+      "两个作用域共享同一隔离槽位（join scopes），解析到同一个 store key",
+      "第二次 provide 无条件覆盖第一次",
+      "编译错误"
     ],
     "answer": 1,
-    "explanation": "persona 行的意义是为某一个 agent 遮蔽部署级人设；全局挂载会与部署级注册冲突，框架会明确报错（见 packages/preset/persona/README.zh.md）。"
+    "explanation": "相同 label = 合并作用域（context.ts:115 注释）。provide/get 都按 isolate 图解析出的 symbol 作 key（reflect.ts:287），所以第二次 provide 会因 key 已占用抛重复注册错误——恰好证明槽位共享。"
+  },
+  {
+    "id": "ch01-q4",
+    "chapter": "ch01",
+    "question": "下列哪种**不是** Cordis 认可的插件形态？",
+    "options": [
+      "function plugin(ctx, config) {}",
+      "{ apply(ctx, config) {} }",
+      "class MyService extends Service {}",
+      "{ activate(ctx, config) {} }"
+    ],
+    "answer": 3,
+    "explanation": "resolve（registry.ts:222-228）只接受函数或带 apply 方法的对象，其余抛 invalid plugin。类形态由 isConstructor 判定后用 new 构造（fiber.ts:251）。"
+  },
+  {
+    "id": "ch01-q5",
+    "chapter": "ch01",
+    "question": "插件配置是如何传到插件体里的？",
+    "options": [
+      "ctx.config 属性（需在 inject 声明 config）",
+      "apply(ctx, config) 的第二参数，经 internal/config waterfall + schema 校验",
+      "全局环境变量",
+      "loader 直接改写插件模块的导出"
+    ],
+    "answer": 1,
+    "explanation": "内核没有 ctx.config（learning-hub 启动报错就是这个原因）。配置路径：ctx.plugin(plugin, config) → fiber._config → internal/config waterfall + schema 校验 → fiber.config → apply 第二参数（fiber.ts:253/641-655）。"
   }
 ]

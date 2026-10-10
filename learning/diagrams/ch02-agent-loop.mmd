@@ -1,16 +1,40 @@
+%% 第 2 章 · turn 时序图（ReactLoopAgent）
 sequenceDiagram
-  participant U as 用户
-  participant A as agent.ts
-  participant S as assistant-stream.ts
-  participant T as tool-calls.ts
-  participant I as inbox.ts
-  U->>A: 发消息（开始 turn）
-  loop 每个 step
-    A->>S: 发起模型流式响应
-    S->>T: 检出工具调用
-    T-->>S: 工具结果
-    S-->>A: step 完成
-    A->>I: step 边界检查 inbox
-    I-->>A: 无新消息/有新消息
+  autonumber
+  participant U as 用户/插件
+  participant A as ReactLoopAgent
+  participant I as Inbox(持久)
+  participant S as Session 日志
+  participant H as 插件 waterfall
+  participant L as ctx.llm
+  participant T as ctx.tools
+
+  U->>A: followup(msg) / steer(msg)
+  A->>I: splice → agent/inbox/spliced 落盘
+  A->>A: wakeDriver: idle→running
+  loop while(await turn())
+    A->>S: turn/start
+    loop 每个 step
+      A->>I: claim(next-step 全部 + next-turn 一条)
+      A->>H: agent/pre-step waterfall
+      H-->>A: enter(messages) 或 reject(→blocked)
+      A->>S: step/start
+      A->>H: agent/request waterfall 定 config
+      A->>S: system/message, user/message, request/header
+      A->>L: stream(request)
+      L-->>A: StreamChunk* → assistant-stream 帧(瞬态)
+      alt 流成功
+        A->>S: assistant/message (内嵌 compact stream)
+        opt 有 tool-call 块
+          A->>T: 屏障+并行池（模型序提交）
+          T-->>S: tool/call, tool/result
+        end
+      else 流失败
+        A->>S: assistant/attempt
+        A->>H: agent/request-error → retry?
+      end
+      A->>S: step/end
+    end
+    A->>S: turn/end {completed|max-tokens|aborted|error|blocked}
   end
-  A-->>U: turn 结束（最终回复）
+  A->>A: running→idle

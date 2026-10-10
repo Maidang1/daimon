@@ -2,14 +2,66 @@
   {
     "id": "ch07-q1",
     "chapter": "ch07",
-    "question": "一个跨层功能（如进度 SQLite 化）正确的开工顺序是？",
+    "question": "想给 agent 加一个「模型可见的新能力」（如查天气），正确的扩展点是？",
     "options": [
-      "直接改代码",
-      "先定位每层的扩展点与现有实现，写一页机制笔记，再实现",
-      "先写 UI",
-      "先发朋友圈"
+      "改 vendor/cordis 源码加全局函数",
+      "在 ctx.tools 上注册新工具，其 schema 自动加入提示词组装",
+      "在 UI 层加一个按钮",
+      "改 agent-loop 的 agent.ts"
     ],
     "answer": 1,
-    "explanation": "阶段 2.0 的模式：先读机制写笔记（记录依赖的 API 面），再动手——预览版 API 变动时也能对照排查。"
+    "explanation": "architecture.zh.md:142「新行为的归属位置」：添加面向模型的能力 → 在 ctx.tools 上注册；schema 自动加入提示词组装，无需改任何内核代码。"
+  },
+  {
+    "id": "ch07-q2",
+    "chapter": "ch07",
+    "question": "毕业设计中想持久化一个新状态（跨重启保留），正确做法是？",
+    "options": [
+      "写一个新的 JSON 文件自己管理",
+      "声明合并扩展 SessionEventMap 加新事件类型，从日志渲染和回放",
+      "存在插件模块的全局变量里",
+      "存 localStorage"
+    ],
+    "answer": 1,
+    "explanation": "第 3 章原则：事实进日志（SessionEventMap 声明合并），状态从日志投影。自建文件会失去重放/fork/迁移的一致性。"
+  },
+  {
+    "id": "ch07-q3",
+    "chapter": "ch07",
+    "question": "你的插件在 headless profile 下激活失败：inject 的 webServer 没人提供。最优雅的处理是？",
+    "options": [
+      "try/catch 吞掉错误",
+      "给条目加 disabled: !!js \"!ctx.get('webServer')\" 门控，让功能按部署形态退化",
+      "在插件里自己起一个 HTTP 服务器",
+      "要求用户必须用 web profile"
+    ],
+    "answer": 1,
+    "explanation": "第 4 章 fail-closed/退化原则 + 第 6 章 !!js 门控：disabled 在 loader 作用域求值，服务缺失即不挂载，启动审计也不会报 warning。"
+  },
+  {
+    "id": "ch07-q4",
+    "chapter": "ch07",
+    "question": "review 时发现某插件监听 agent/assistant-stream 把 AI 回复存进数据库，问题在哪？",
+    "options": [
+      "没问题，这是正规做法",
+      "assistant-stream 是瞬态帧不落盘，崩溃后数据库内容与日志不一致；应改读 assistant/message 事件（内嵌 compact stream）",
+      "assistant-stream 频率太高会撑爆数据库",
+      "应该监听 llm/stream 才对"
+    ],
+    "answer": 1,
+    "explanation": "第 2 章三轨设计：瞬态帧仅供实时 UI；持久化必须读 assistant/message/attempt（先落盘后通知原则保证可回放）。"
+  },
+  {
+    "id": "ch07-q5",
+    "chapter": "ch07",
+    "question": "答辩题：为什么「一切皆插件」对毕业设计是重要的约束而不是障碍？",
+    "options": [
+      "不是约束，只是口号",
+      "所有扩展点都是公开的 seam（事件/服务/patch），不需要改内核，上游升级时你的插件不易碎；改内核的代码升级必冲突",
+      "插件写起来更简单",
+      "插件性能更好"
+    ],
+    "answer": 1,
+    "explanation": "第 0/1 章核心论点：没有特权内核意味着你的插件和官方功能用同一套 seam——上游演进会保持 seam 兼容，而 monkey-patch 内核的代码每次升级都可能冲突。"
   }
 ]

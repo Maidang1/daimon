@@ -1,0 +1,22 @@
+%% 第 4 章 · 工具执行管线（含审批决策）
+flowchart TD
+  model["模型返回 tool-call block"] --> log["落 tool/call 事件<br/>tool-calls.ts:263"]
+  log --> pre["① tools/pre-execute waterfall<br/>core/tools/index.ts:1511"]
+  pre -->|deny/cancel| denied["拒绝结果 isError"]
+  pre -->|ask| ask["② serviceAsk → approval.request<br/>index.ts:1733"]
+  ask --> policy{"会话策略<br/>user-approval/index.ts:275"}
+  policy -->|never: 分发前短路| denied
+  policy -->|ask| wf["approval/request waterfall"]
+  wf --> ui["UI ApprovalPanel / ACP 应答者"]
+  ui -->|allowed-once| guards["③ 单调守卫 guardReason<br/>只能否决 index.ts:1525"]
+  ui -->|rejected/cancelled/unavailable| denied
+  pre -->|allow| guards
+  guards -->|有理由| denied
+  guards -->|通过| around["④ tools/execute around-waterfall"]
+  around --> body["tool.execute()"]
+  body --> fence["沙箱围栏<br/>fs: checkedTarget fs-sandbox:122<br/>bash: 内核 confine"]
+  fence --> project["⑤ projectContent → post-execute<br/>→ 物化冻结 → emit tools/result"]
+  denied --> project
+  project --> result["落 tool/result（回链 call seq）"]
+  result --> derive["deriveMessages 折回 transcript<br/>→ 下一次模型请求"]
+  derive --> model

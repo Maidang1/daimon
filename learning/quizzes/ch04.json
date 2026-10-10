@@ -2,27 +2,66 @@
   {
     "id": "ch04-q1",
     "chapter": "ch04",
-    "question": "fs-sandbox 对文件操作的限制方式是？",
+    "question": "模型调用某工具时参数缺了 required 字段，错误在哪一层被抛出？",
     "options": [
-      "读写都禁止",
-      "限制写与编辑，读通常不受限",
-      "只允许读图片",
-      "按文件大小限制"
+      "LLM 适配器",
+      "defineTool 包装的 execute 入口",
+      "工具自己的 parse 函数",
+      "post-execute waterfall"
     ],
     "answer": 1,
-    "explanation": "沙箱后端限制写/编辑（workspace-write 策略），读取一般放开；见 packages/fs/fs-sandbox 与 docs/subsystems/filesystem.zh.md。"
+    "explanation": "defineTool 生成的 execute 先跑 validate(args)，违规抛 ToolArgsError（core/tools/src/schema.ts:597-600）；工具体内的 parse 只查 schema 表达不了的值约束。"
   },
   {
     "id": "ch04-q2",
     "chapter": "ch04",
-    "question": "工具描述（description）放进哪里、影响什么？",
+    "question": "会话审批策略为 'never' 时，一个用 prepend: true 注册的应答者能否接到审批请求？",
     "options": [
-      "只放在文档里给人看",
-      "进入系统提示词/工具目录，直接影响模型的工具选择行为",
-      "写进日志",
-      "不进任何地方"
+      "能，prepend 优先",
+      "能，但结果会被改写",
+      "不能，策略在 waterfall 分发前短路",
+      "取决于工具"
     ],
-    "answer": 1,
-    "explanation": "工具目录随系统提示词发给模型，description 的措辞会显著影响调用质量——改工具描述是改模型行为。"
+    "answer": 2,
+    "explanation": "decide() 在分发前检查 effectivePolicy(session) === 'never' 并直接返回 rejected（user-approval/src/index.ts:270-275），保证 never 的确定性不依赖注册顺序。"
+  },
+  {
+    "id": "ch04-q3",
+    "chapter": "ch04",
+    "question": "workspace-write 模式下 fs 写操作的 containment 检查在哪里执行？",
+    "options": [
+      "tool-fs 的 write 工具体内",
+      "tools/pre-execute 钩子",
+      "SandboxedFileSystem.checkedTarget（provider 层）",
+      "UI 审批面板"
+    ],
+    "answer": 2,
+    "explanation": "围栏在 provider 层（fs-sandbox/src/index.ts:122-144），且用重新规范化后的新鲜 target 检查以防 TOCTOU；工具层只负责解析策略与映射错误标记。"
+  },
+  {
+    "id": "ch04-q4",
+    "chapter": "ch04",
+    "question": "关于 ToolGuard（单调守卫），下列哪项正确？",
+    "options": [
+      "可以返回 allow 覆盖其他守卫",
+      "是 async waterfall",
+      "只能返回拒绝理由或弃权，顺序无关",
+      "在 pre-execute 之前运行"
+    ],
+    "answer": 2,
+    "explanation": "守卫是单调、只能否决的检查（core/tools/src/index.ts:725-732：listener ordering cannot turn a denial back into permission），在 pre-execute 与审批之后运行（:1525）。"
+  },
+  {
+    "id": "ch04-q5",
+    "chapter": "ch04",
+    "question": "toolResultPruner 剪枝旧工具结果时如何保证重放安全与计价正确？",
+    "options": [
+      "直接删除事件",
+      "调模型生成摘要",
+      "surface replace + 前置 compaction/prune 影子计价事件",
+      "修改原事件内容"
+    ],
+    "answer": 2,
+    "explanation": "以 surfaceOp: replace 追加替代事件并引用被遮蔽节点，紧邻前置带 shadowedTokenCount 的 compaction/prune 事件（compaction-tool-result-pruner/src/index.ts:160-171），纯消费方做减法即可。"
   }
 ]

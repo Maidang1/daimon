@@ -2,27 +2,66 @@
   {
     "id": "ch05-q1",
     "chapter": "ch05",
-    "question": "要接入一个新的 OpenAI 兼容端点，最优先看哪个包？",
+    "question": "适配器抛出的异常，消费者看到的是什么？",
     "options": [
-      "packages/fs",
-      "packages/llm/llm-pi-ai（多提供方适配）",
-      "packages/shell",
-      "vendor/cordis"
+      "原始异常被 rethrow",
+      "终态 finish chunk（reason 为 error 或 aborted）",
+      "一个 usage chunk",
+      "空流"
     ],
     "answer": 1,
-    "explanation": "llm-pi-ai 承载多提供方配置（baseURL/apiKeyEnv/models），Settings → Models 的自定义端点最终落到这一层。"
+    "explanation": "adapterStream 把适配器选择、dispatch、迭代失败统一归一为终态失败 chunk（llm/src/index.ts:1160-1171）；但中间件与下游消费者的异常仍抛出，这是刻意边界。"
   },
   {
     "id": "ch05-q2",
     "chapter": "ch05",
-    "question": "llm-retry 与 token-meter 分别负责什么？",
+    "question": "`GenerateOptions.provider` 的语义是？",
     "options": [
-      "都负责计费",
-      "失败重试策略 / token 用量计量",
-      "都负责压缩",
-      "模型下载 / 模型卸载"
+      "厂商枚举",
+      "URL",
+      "注册表里的字符串路由名，未注册抛 NO_ADAPTER",
+      "模型别名"
+    ],
+    "answer": 2,
+    "explanation": "llm/src/index.ts:993-995；llm-pi-ai 里 providers 字典键即路由名（config.ts:91），daimon-web 的 kimi-coding 就是这样一个路由。"
+  },
+  {
+    "id": "ch05-q3",
+    "chapter": "ch05",
+    "question": "用户上传的文件会怎样发给模型？",
+    "options": [
+      "base64 内联",
+      "走 files API 引用 file_id，且持久日志里的 FileBlock 在请求组装时被投影为句柄文本",
+      "直接发路径字符串，无投影",
+      "拒绝发送"
     ],
     "answer": 1,
-    "explanation": "见 packages/llm/llm-retry 与 packages/llm/token-meter。"
+    "explanation": "文件永不原生上送：llm/src/index.ts:1076 调 projectFilesToText；DeepSeek 侧还有 files-api beta 通道。"
+  },
+  {
+    "id": "ch05-q4",
+    "chapter": "ch05",
+    "question": "浏览器首次打开 `http://127.0.0.1:3180/?token=…` 后，后续 API 请求凭什么鉴权？",
+    "options": [
+      "每次请求都带 token query",
+      "token 换发的 HMAC 签名 cookie + Host/Origin 检查",
+      "localStorage 里的 token",
+      "IP 白名单"
+    ],
+    "answer": 1,
+    "explanation": "browser-auth.ts:244-260：token 只在 GET / 有效一次，签 cookie 后 302 到干净地址；/api 准入见 rpc-host.ts:114。"
+  },
+  {
+    "id": "ch05-q5",
+    "chapter": "ch05",
+    "question": "整个 Web 应用里 ctx 级 `renderSlot('root')` 被调用几次、在哪里？",
+    "options": [
+      "每个面板一次",
+      "一次，ui-renderer/src/client/app.tsx:21",
+      "每个插件一次",
+      "零次，root 是硬编码组件"
+    ],
+    "answer": 1,
+    "explanation": "全应用唯一一次 ctx 级 renderSlot（app.tsx:21）；其余都是父注册内部的子 slot 渲染。"
   }
 ]

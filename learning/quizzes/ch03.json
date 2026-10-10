@@ -2,27 +2,66 @@
   {
     "id": "ch03-q1",
     "chapter": "ch03",
-    "question": "session jsonl 里的事件在 resume 时如何变成内存状态？",
+    "question": "`Session.append()` 返回时，事件已经持久化到磁盘了吗？",
     "options": [
-      "直接 JSON.parse 整个文件",
-      "经 session-projection 把事件流重放/折叠成状态",
-      "模型重新生成",
-      "从 sqlite 读取"
+      "是，append 会同步写文件",
+      "是，但仅在 compression:'none' 时",
+      "否，append 只进内存日志并同步广播 session/event，持久化由 200ms 批窗口或 flush() 完成",
+      "否，事件只在 turn/end 时落盘"
     ],
-    "answer": 1,
-    "explanation": "projection 把事件序列折叠成当前内存状态；session-projection-cache 缓存中间结果避免每次全量重放。"
+    "answer": 2,
+    "explanation": "热路径零 I/O（core/session/src/index.ts:798 起）；只有 flush() resolve 才承诺 crash-safe。session-checkpoint-policy 在模型请求/工具派发前强制 flush。"
   },
   {
     "id": "ch03-q2",
     "chapter": "ch03",
-    "question": "session-format 存在 v0→v4 迁移链而非直接改格式，原因是？",
+    "question": "压缩（compaction）后，被摘要遮蔽的原始事件去哪了？",
     "options": [
-      "历史包袱，没有原因",
-      "让旧版本写入的会话文件在新版本里仍可打开",
-      "为了加密",
-      "为了压缩体积"
+      "从 jsonl 中物理删除",
+      "标记为 deleted 但保留",
+      "原样保留在日志里，surface 上用一条 replace 的 user/message 摘要节点替换它们的位置",
+      "移动到单独的归档文件"
+    ],
+    "answer": 2,
+    "explanation": "日志 append-only；唯一 surface 变更是 surfaceOp:{op:'replace'}（compaction-basic/src/region.ts:507），compaction/summary.shadowedSeqs 记录被遮蔽 seq 供审计。"
+  },
+  {
+    "id": "ch03-q3",
+    "chapter": "ch03",
+    "question": "一个 v1 格式的会话在当前（v4）构建上被写 open 时，会发生什么？",
+    "options": [
+      "拒绝，必须先用离线工具升级",
+      "依次跑 v1→v2→v3→v4 三条相邻迁移，把当前代际文件发布到同目录，源文件保持逐字节不变",
+      "原地改写为 v4",
+      "只迁移 header，事件按需懒迁移"
     ],
     "answer": 1,
-    "explanation": "格式演进必须向后兼容已落盘的会话；每个 session-format-vN-to-vN+1 包负责一步迁移。"
+    "explanation": "相邻链 migrations.slice(from)（session-format/src/chain.ts:79-87）；历史 open 源路径、字节与 inode 不变，写 open 发布当前代际后继文件。"
+  },
+  {
+    "id": "ch03-q4",
+    "chapter": "ch03",
+    "question": "进程在 turn 中途崩溃，jsonl 最后一条 zstd 帧写了一半。resume 时哪两项修复会发生？",
+    "options": [
+      "整个会话作废重建",
+      "物理层截断撕裂尾；语义层由 interruptedTurnClosers 合成缺失的 step/end 和 turn/end{kind:'interrupted'} 追加落盘",
+      "只丢弃最后一个事件",
+      "回滚到上一个 turn/start"
+    ],
+    "answer": 1,
+    "explanation": "撕裂尾由存储层在首次新 append 前修复（storage.ts:319-329）；语义修复是 agent 层职责（agent-loop/index.ts:891-892；repair.ts:209）。"
+  },
+  {
+    "id": "ch03-q5",
+    "chapter": "ch03",
+    "question": "为什么未知事件类型默认导致恢复被**拒绝**而不是跳过？",
+    "options": [
+      "性能原因",
+      "未识别的必需事件可能改变后续日志的解释，静默丢弃会恢复出一个被掏空的会话；只有显式 ignorable: true 才可跳过",
+      "TypeScript 类型不允许",
+      "zstd 解码失败"
+    ],
+    "answer": 1,
+    "explanation": "types.ts:505-515 契约：defaulting to required means over-refusing rather than silently resuming a gutted session。"
   }
 ]

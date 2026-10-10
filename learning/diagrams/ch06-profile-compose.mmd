@@ -1,0 +1,20 @@
+%% 第 6 章 · profile/bundle/patch 合成流程
+flowchart TD
+    A["dsh --profile X"] --> B["prepareProfile<br/>profile-boot.ts:167"]
+    B --> C["loadProfile：读 dsh.profile.bundles"]
+    C --> D["每个 bundle: resolveBundleDir → dsh.bundle.patch"]
+    D --> E["重写 cordis.yml = []<br/>profile-boot.ts:171"]
+    E --> F["readProfilePatches 拼层<br/>profile-context.ts:63"]
+    F --> G1["层1 bundle patch（按序）"]
+    F --> G2["层2 profile/cordis.patch.yml"]
+    F --> G3["层3 $DSH_HOME/cordis.patch.yml"]
+    F --> G4["层4 --patch overlays"]
+    F --> G5["层5 telemetry 开关"]
+    G1 & G2 & G3 & G4 & G5 --> H["boot() → new Context → ctx.plugin(Loader)"]
+    H --> J["mountRootInclude → applyEntryPatches<br/>合成完整条目树 include/index.ts:57"]
+    J --> L["Entry._init: import → registry.plugin<br/>entry.ts:223"]
+    L --> N{{"inject 就绪?"}}
+    N -- "否" --> O["pending → 启动审计告警<br/>warning: N entries did not activate"]
+    N -- "是" --> P["插件激活（host）"]
+    P --> Q["client-modules 扫描 dsh.client<br/>组合 __DSH_BOOT__"]
+    Q --> R["浏览器: client apply(ctx)<br/>注册 slots / sidebarRightTabs"]
