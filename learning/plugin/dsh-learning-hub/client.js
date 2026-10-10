@@ -7,6 +7,10 @@
  * flows through the host half's JSON API at /__learning-hub (see index.js).
  * React comes from the browser module table; Mermaid is served as a vendored
  * asset by the host half and lazy-loaded on first diagram render.
+ *
+ * Visual design: theme-adaptive via color-mix + currentColor (works in both
+ * light and dark host themes), one injected stylesheet for hover states and
+ * keyframe animations (inline styles cannot express those).
  */
 window.__ModuleLoader__.load({
   id: '@local/dsh-learning-hub',
@@ -28,29 +32,129 @@ window.__ModuleLoader__.load({
       return data
     }
 
-    /* ── shared bits ─────────────────────────────────────────────────── */
+    /* ── design system ───────────────────────────────────────────────── */
 
-    const styles = {
-      root: { display: 'flex', flexDirection: 'column', gap: 12, padding: 16, fontSize: 13, color: 'inherit', height: '100%', boxSizing: 'border-box', overflowY: 'auto' },
-      title: { margin: 0, fontSize: 15, fontWeight: 600 },
-      muted: { opacity: 0.65, fontSize: 12 },
-      card: { border: '1px solid color-mix(in srgb, currentColor 18%, transparent)', borderRadius: 10, padding: 12 },
-      row: { display: 'flex', alignItems: 'center', gap: 8 },
-      bar: { height: 8, borderRadius: 4, background: 'color-mix(in srgb, currentColor 12%, transparent)', overflow: 'hidden' },
-      barFill: { height: '100%', borderRadius: 4, background: '#247bbf', transition: 'width .3s' },
-      btn: { font: 'inherit', fontSize: 12, padding: '4px 12px', borderRadius: 8, border: '1px solid color-mix(in srgb, currentColor 25%, transparent)', background: 'transparent', color: 'inherit', cursor: 'pointer' },
-      option: (state) => ({
-        display: 'block', width: '100%', textAlign: 'left', font: 'inherit', fontSize: 13,
-        padding: '8px 12px', margin: '6px 0', borderRadius: 8, cursor: state.disabled ? 'default' : 'pointer',
-        border: '1px solid color-mix(in srgb, currentColor 20%, transparent)',
-        background: state.correct ? 'color-mix(in srgb, #2da44e 22%, transparent)'
-          : state.wrong ? 'color-mix(in srgb, #cf222e 18%, transparent)' : 'transparent',
-        color: 'inherit',
-      }),
-      error: { color: '#cf222e', fontSize: 12 },
+    const STYLE_ID = 'dsh-learning-hub-styles'
+    const CSS = `
+.lh-root { display:flex; flex-direction:column; gap:14px; padding:18px 16px 24px; font-size:13px; line-height:1.55; color:inherit; height:100%; box-sizing:border-box; overflow-y:auto; }
+.lh-root * { box-sizing:border-box; }
+.lh-root ::-webkit-scrollbar { width:8px; }
+.lh-root ::-webkit-scrollbar-thumb { background:color-mix(in srgb, currentColor 15%, transparent); border-radius:4px; }
+
+.lh-header { display:flex; align-items:center; gap:10px; }
+.lh-header-icon { width:32px; height:32px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:16px;
+  background:linear-gradient(135deg, color-mix(in srgb,#4f6ef7 22%, transparent), color-mix(in srgb,#8b5cf6 18%, transparent));
+  border:1px solid color-mix(in srgb,#4f6ef7 30%, transparent); }
+.lh-title { margin:0; font-size:15px; font-weight:650; letter-spacing:.01em; }
+.lh-sub { font-size:12px; opacity:.55; margin-top:1px; }
+.lh-muted { font-size:12px; opacity:.55; }
+.lh-error { font-size:12px; color:#e5484d; background:color-mix(in srgb,#e5484d 10%, transparent); border:1px solid color-mix(in srgb,#e5484d 30%, transparent); border-radius:10px; padding:8px 12px; }
+
+.lh-card { border:1px solid color-mix(in srgb, currentColor 11%, transparent); border-radius:14px; padding:14px 16px;
+  background:color-mix(in srgb, currentColor 2.5%, transparent); animation:lh-fade .25s ease both; }
+.lh-lift { transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+.lh-lift:hover { transform:translateY(-1px); border-color:color-mix(in srgb, currentColor 22%, transparent);
+  box-shadow:0 6px 16px -6px color-mix(in srgb, currentColor 18%, transparent); }
+
+.lh-hero { border:1px solid color-mix(in srgb,#4f6ef7 32%, transparent); border-radius:16px; padding:16px 18px;
+  background:linear-gradient(135deg, color-mix(in srgb,#4f6ef7 13%, transparent), color-mix(in srgb,#8b5cf6 10%, transparent));
+  animation:lh-fade .25s ease both; }
+.lh-hero-pct { font-size:30px; font-weight:750; line-height:1.1;
+  background:linear-gradient(135deg,#4f6ef7,#8b5cf6); -webkit-background-clip:text; background-clip:text; color:transparent; }
+.lh-bar { height:8px; border-radius:99px; background:color-mix(in srgb, currentColor 9%, transparent); overflow:hidden; }
+.lh-bar-fill { height:100%; border-radius:99px; background:linear-gradient(90deg,#4f6ef7,#8b5cf6); transition:width .5s cubic-bezier(.4,0,.2,1); }
+
+.lh-btn { font:inherit; font-size:12px; font-weight:550; padding:6px 14px; border-radius:99px; cursor:pointer; color:inherit;
+  border:1px solid color-mix(in srgb, currentColor 20%, transparent); background:transparent;
+  transition:all .15s ease; }
+.lh-btn:hover { border-color:color-mix(in srgb,#4f6ef7 60%, transparent); color:#4f6ef7; }
+.lh-btn:active { transform:scale(.97); }
+.lh-btn-primary { border-color:transparent; color:#fff; background:linear-gradient(135deg,#4f6ef7,#6a5cf0); box-shadow:0 2px 8px -2px color-mix(in srgb,#4f6ef7 55%, transparent); }
+.lh-btn-primary:hover { color:#fff; filter:brightness(1.08); }
+
+.lh-chip { font:inherit; font-size:12px; font-weight:550; padding:5px 13px; border-radius:99px; cursor:pointer; color:inherit;
+  border:1px solid color-mix(in srgb, currentColor 16%, transparent); background:transparent; transition:all .15s ease; }
+.lh-chip:hover { border-color:color-mix(in srgb,#4f6ef7 55%, transparent); }
+.lh-chip-active { border-color:transparent; color:#fff; background:linear-gradient(135deg,#4f6ef7,#8b5cf6); }
+
+.lh-chapter { display:flex; align-items:center; gap:12px; width:100%; text-align:left; cursor:pointer;
+  border:1px solid color-mix(in srgb, currentColor 11%, transparent); border-radius:14px; padding:12px 14px;
+  background:color-mix(in srgb, currentColor 2.5%, transparent); color:inherit; font:inherit;
+  transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease, opacity .18s ease;
+  animation:lh-fade .3s ease both; }
+.lh-chapter:hover { transform:translateY(-1px); border-color:color-mix(in srgb,#4f6ef7 45%, transparent);
+  box-shadow:0 6px 16px -6px color-mix(in srgb, currentColor 16%, transparent); }
+.lh-badge { flex:none; width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  font-size:12px; font-weight:650; border:1.5px solid color-mix(in srgb, currentColor 22%, transparent); color:inherit; opacity:.75; }
+.lh-badge-done { opacity:1; border-color:transparent; color:#fff; background:linear-gradient(135deg,#4f6ef7,#8b5cf6); }
+.lh-chapter-title { flex:1; font-weight:550; }
+.lh-check { flex:none; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  font-size:12px; border:1.5px solid color-mix(in srgb, currentColor 22%, transparent); color:transparent; transition:all .18s ease; }
+.lh-check-done { border-color:transparent; background:#22a35a; color:#fff; animation:lh-pop .25s ease; }
+.lh-done { opacity:.55; }
+.lh-done .lh-chapter-title { text-decoration:line-through; text-decoration-color:color-mix(in srgb, currentColor 40%, transparent); }
+
+.lh-tag { font-size:10px; font-weight:650; padding:2px 8px; border-radius:99px; letter-spacing:.03em;
+  background:color-mix(in srgb,#22a35a 15%, transparent); color:#22a35a; border:1px solid color-mix(in srgb,#22a35a 35%, transparent); }
+
+.lh-option { display:flex; align-items:center; gap:11px; width:100%; text-align:left; font:inherit; font-size:13px; cursor:pointer;
+  padding:10px 13px; border-radius:12px; color:inherit;
+  border:1px solid color-mix(in srgb, currentColor 14%, transparent); background:color-mix(in srgb, currentColor 2%, transparent);
+  transition:all .15s ease; animation:lh-fade .25s ease both; }
+.lh-option:hover:not(:disabled) { border-color:color-mix(in srgb,#4f6ef7 55%, transparent); background:color-mix(in srgb,#4f6ef7 6%, transparent); transform:translateX(2px); }
+.lh-option:disabled { cursor:default; }
+.lh-letter { flex:none; width:26px; height:26px; border-radius:8px; display:flex; align-items:center; justify-content:center;
+  font-size:12px; font-weight:700; border:1.5px solid color-mix(in srgb, currentColor 20%, transparent); opacity:.8; }
+.lh-option-correct { border-color:color-mix(in srgb,#22a35a 65%, transparent)!important; background:color-mix(in srgb,#22a35a 12%, transparent)!important; animation:lh-pop .3s ease; }
+.lh-option-correct .lh-letter { background:#22a35a; border-color:transparent; color:#fff; opacity:1; }
+.lh-option-wrong { border-color:color-mix(in srgb,#e5484d 65%, transparent)!important; background:color-mix(in srgb,#e5484d 10%, transparent)!important; animation:lh-shake .3s ease; }
+.lh-option-wrong .lh-letter { background:#e5484d; border-color:transparent; color:#fff; opacity:1; }
+.lh-option-dim { opacity:.45; }
+
+.lh-feedback { border-radius:14px; padding:14px 16px; animation:lh-fade .25s ease both;
+  border:1px solid color-mix(in srgb, currentColor 11%, transparent);
+  border-left:3px solid #22a35a; background:color-mix(in srgb,#22a35a 7%, transparent); }
+.lh-feedback-bad { border-left-color:#e5484d; background:color-mix(in srgb,#e5484d 7%, transparent); }
+
+.lh-dots { display:flex; gap:6px; }
+.lh-dot { width:7px; height:7px; border-radius:50%; background:color-mix(in srgb, currentColor 15%, transparent); transition:all .2s ease; }
+.lh-dot-on { background:linear-gradient(135deg,#4f6ef7,#8b5cf6); transform:scale(1.25); }
+
+.lh-score-ring { width:88px; height:88px; border-radius:50%; display:flex; align-items:center; justify-content:center; margin:4px auto 10px; }
+.lh-score-inner { width:70px; height:70px; border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  background:color-mix(in srgb, currentColor 4%, transparent); }
+.lh-pre { font-size:11px; line-height:1.5; white-space:pre-wrap; word-break:break-all; padding:12px 14px; border-radius:12px;
+  background:color-mix(in srgb, currentColor 5%, transparent); border:1px solid color-mix(in srgb, currentColor 8%, transparent); }
+.lh-svg-wrap { display:flex; justify-content:center; padding:8px; overflow-x:auto; }
+.lh-svg-wrap svg { max-width:100%; height:auto; }
+.lh-details summary { font-size:12px; opacity:.55; cursor:pointer; user-select:none; }
+.lh-details summary:hover { opacity:.8; }
+
+@keyframes lh-fade { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+@keyframes lh-pop { 0% { transform:scale(.92); } 60% { transform:scale(1.04); } 100% { transform:scale(1); } }
+@keyframes lh-shake { 0%,100% { transform:translateX(0); } 25% { transform:translateX(-4px); } 75% { transform:translateX(4px); } }
+`
+    function ensureStyles() {
+      if (document.getElementById(STYLE_ID)) return
+      const el = document.createElement('style')
+      el.id = STYLE_ID
+      el.textContent = CSS
+      document.head.appendChild(el)
     }
 
-    function ErrorText({ error }) { return error ? h('div', { style: styles.error }, String(error.message || error)) : null }
+    /* ── shared bits ─────────────────────────────────────────────────── */
+
+    function Header({ icon, title, sub }) {
+      return h('div', { className: 'lh-header' },
+        h('div', { className: 'lh-header-icon' }, icon),
+        h('div', null,
+          h('h2', { className: 'lh-title' }, title),
+          sub && h('div', { className: 'lh-sub' }, sub)))
+    }
+
+    function ErrorText({ error }) {
+      return error ? h('div', { className: 'lh-error' }, '⚠ ' + String(error.message || error)) : null
+    }
 
     /* ── progress view ───────────────────────────────────────────────── */
 
@@ -66,6 +170,7 @@ window.__ModuleLoader__.load({
       const chapters = progress?.chapters ?? []
       const done = chapters.filter((c) => c.completed).length
       const pct = chapters.length ? Math.round((done / chapters.length) * 100) : 0
+      const levelLabel = progress?.learnerLevel === 'advanced' ? '进阶' : progress?.learnerLevel === 'beginner' ? '入门' : null
 
       const toggle = (chapterId, completed) => {
         api('/api/progress/toggle', { chapterId, completed }).then(setProgress, setError)
@@ -74,27 +179,49 @@ window.__ModuleLoader__.load({
         api('/api/progress/level', { level }).then(setProgress, setError)
       }
 
-      return h('div', { style: styles.root },
-        h('h2', { style: styles.title }, '学习中心'),
+      return h('div', { className: 'lh-root' },
+        h(Header, { icon: '🎓', title: '学习中心', sub: '用 Harness 学 Harness' }),
         h(ErrorText, { error }),
-        progress && !progress.learnerLevel && h('div', { style: styles.card },
-          h('div', { style: { marginBottom: 8 } }, '先告诉导师你的起点：'),
-          h('div', { style: styles.row },
-            h('button', { style: styles.btn, onClick: () => setLevel('beginner') }, '入门'),
-            h('button', { style: styles.btn, onClick: () => setLevel('advanced') }, '进阶'))),
-        h('div', null,
-          h('div', { style: { ...styles.row, justifyContent: 'space-between', marginBottom: 6 } },
-            h('span', { style: styles.muted }, `总体进度 ${done}/${chapters.length}`),
-            h('span', { style: styles.muted }, `${pct}%`)),
-          h('div', { style: styles.bar }, h('div', { style: { ...styles.barFill, width: pct + '%' } }))),
-        chapters.map((ch, i) => h('label', { key: ch.id, style: { ...styles.card, ...styles.row, cursor: 'pointer' } },
-          h('input', {
-            type: 'checkbox', checked: Boolean(ch.completed),
-            onChange: (e) => toggle(ch.id, e.target.checked),
-          }),
-          h('span', { style: { textDecoration: ch.completed ? 'line-through' : 'none', opacity: ch.completed ? 0.6 : 1 } },
-            `第 ${i} 章 · ${ch.title}`))),
-        h('div', { style: styles.muted }, '勾选状态持久化在 learning/progress.json，导师 Agent 也能读到。'),
+
+        progress && !progress.learnerLevel && h('div', { className: 'lh-hero' },
+          h('div', { style: { fontWeight: 600, marginBottom: 4 } }, '👋 先告诉导师你的起点'),
+          h('div', { className: 'lh-muted', style: { marginBottom: 10 } }, '导师会据此调整讲解深度与节奏'),
+          h('div', { style: { display: 'flex', gap: 8 } },
+            h('button', { className: 'lh-btn lh-btn-primary', onClick: () => setLevel('beginner') }, '入门'),
+            h('button', { className: 'lh-btn', onClick: () => setLevel('advanced') }, '进阶'))),
+
+        progress && h('div', { className: 'lh-hero' },
+          h('div', { style: { display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 10 } },
+            h('div', null,
+              h('div', { className: 'lh-hero-pct' }, pct + '%'),
+              h('div', { className: 'lh-muted' }, `总体进度 ${done}/${chapters.length} 章`),
+            ),
+            levelLabel && h('div', { style: { textAlign: 'right' } },
+              h('div', { className: 'lh-muted', style: { marginBottom: 4 } }, '当前级别'),
+              h('div', { style: { display: 'flex', gap: 6 } },
+                h('button', {
+                  className: 'lh-chip' + (progress.learnerLevel === 'beginner' ? ' lh-chip-active' : ''),
+                  onClick: () => setLevel('beginner'),
+                }, '入门'),
+                h('button', {
+                  className: 'lh-chip' + (progress.learnerLevel === 'advanced' ? ' lh-chip-active' : ''),
+                  onClick: () => setLevel('advanced'),
+                }, '进阶')))),
+          h('div', { className: 'lh-bar' }, h('div', { className: 'lh-bar-fill', style: { width: pct + '%' } })),
+          done === chapters.length && chapters.length > 0 && h('div', { style: { marginTop: 10, fontSize: 12, fontWeight: 600, color: '#22a35a' } }, '🎉 全部章节完成，毕业快乐！')),
+
+        chapters.map((ch, i) => h('button', {
+          key: ch.id,
+          className: 'lh-chapter' + (ch.completed ? ' lh-done' : ''),
+          style: { animationDelay: (i * 30) + 'ms' },
+          onClick: () => toggle(ch.id, !ch.completed),
+        },
+          h('span', { className: 'lh-badge' + (ch.completed ? ' lh-badge-done' : '') }, ch.completed ? '✓' : i),
+          h('span', { className: 'lh-chapter-title' }, `第 ${i} 章 · ${ch.title}`),
+          h('span', { className: 'lh-check' + (ch.completed ? ' lh-check-done' : '') }, '✓'))),
+
+        h('div', { className: 'lh-muted', style: { textAlign: 'center', marginTop: 2 } },
+          '进度持久化在 learning/progress.json · 导师 Agent 可读取'),
       )
     }
 
@@ -144,27 +271,40 @@ window.__ModuleLoader__.load({
           .catch((e) => setError(e))
       }, [])
 
-      return h('div', { style: styles.root },
-        h('h2', { style: styles.title }, '架构图解'),
+      return h('div', { className: 'lh-root' },
+        h(Header, { icon: '📊', title: '架构图解', sub: '导师讲解时产出的 Mermaid 图' }),
         h(ErrorText, { error }),
-        h('div', { style: { ...styles.row, flexWrap: 'wrap' } },
+        h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 } },
           names.map((n) => h('button', {
-            key: n, style: { ...styles.btn, fontWeight: n === current ? 700 : 400 },
+            key: n,
+            className: 'lh-chip' + (n === current ? ' lh-chip-active' : ''),
             onClick: () => open(n),
           }, n.replace(/\.mmd$/, '')))),
-        !names.length && h('div', { style: styles.muted }, '还没有图。导师讲解架构时会写入 learning/diagrams/*.mmd。'),
-        current && !svg && !error && h('div', { style: styles.muted }, '渲染中…'),
-        svg && h('div', {
-          style: { ...styles.card, overflowX: 'auto' },
-          dangerouslySetInnerHTML: { __html: svg },
-        }),
-        source && h('details', null,
-          h('summary', { style: { ...styles.muted, cursor: 'pointer' } }, '查看 Mermaid 源码'),
-          h('pre', { style: { ...styles.card, fontSize: 11, whiteSpace: 'pre-wrap' } }, source)),
+        !names.length && h('div', { className: 'lh-card' },
+          h('div', { className: 'lh-muted' }, '还没有图。导师讲解架构时会写入 learning/diagrams/*.mmd。')),
+        current && !svg && !error && h('div', { className: 'lh-muted' }, '渲染中…'),
+        svg && h('div', { className: 'lh-card', key: current },
+          h('div', { className: 'lh-svg-wrap', dangerouslySetInnerHTML: { __html: svg } })),
+        source && h('details', { className: 'lh-details' },
+          h('summary', null, '查看 Mermaid 源码'),
+          h('pre', { className: 'lh-pre', style: { marginTop: 8 } }, source)),
       )
     }
 
     /* ── quiz view ───────────────────────────────────────────────────── */
+
+    function ScoreRing({ right, total }) {
+      const pct = total ? Math.round((right / total) * 100) : 0
+      const color = pct === 100 ? '#22a35a' : pct >= 60 ? '#4f6ef7' : '#e8a33d'
+      return h('div', {
+        className: 'lh-score-ring',
+        style: { background: `conic-gradient(${color} ${pct * 3.6}deg, color-mix(in srgb, currentColor 10%, transparent) 0deg)` },
+      },
+        h('div', { className: 'lh-score-inner' },
+          h('div', { style: { fontSize: 20, fontWeight: 750, color } }, `${right}/${total}`),
+          h('div', { className: 'lh-muted', style: { fontSize: 10 } }, '正确')),
+      )
+    }
 
     function QuizBody() {
       const [chapters, setChapters] = useState([])
@@ -177,12 +317,12 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState(null)
 
       useEffect(() => {
-        api('/api/progress').then((p) => setChapters((p.chapters ?? []).map((c) => c.id)), setError)
+        api('/api/progress').then((p) => setChapters(p.chapters ?? []), setError)
       }, [])
 
       const start = useCallback((ch) => {
-        setChapter(ch); setIndex(0); setPicked(null); setFeedback(null); setScore({ right: 0, total: 0 })
-        api('/api/quiz?chapter=' + encodeURIComponent(ch)).then(setQuestions, setError)
+        setChapter(ch); setIndex(0); setPicked(null); setFeedback(null); setScore({ right: 0, total: 0 }); setQuestions([])
+        api('/api/quiz?chapter=' + encodeURIComponent(ch.id)).then(setQuestions, setError)
       }, [])
 
       const submit = (choice) => {
@@ -199,47 +339,70 @@ window.__ModuleLoader__.load({
       const next = () => { setIndex((i) => i + 1); setPicked(null); setFeedback(null) }
 
       if (!chapter) {
-        return h('div', { style: styles.root },
-          h('h2', { style: styles.title }, '学习测验'),
+        return h('div', { className: 'lh-root' },
+          h(Header, { icon: '✏️', title: '学习测验', sub: '每章 5–6 题 · 即时判分与解析' }),
           h(ErrorText, { error }),
-          h('div', { style: styles.muted }, '选择一章开始答题：'),
-          chapters.map((c, i) => h('button', { key: c, style: { ...styles.btn, display: 'block', margin: '4px 0' }, onClick: () => start(c) }, `第 ${i} 章`)),
+          h('div', { className: 'lh-muted' }, '选择一章开始答题：'),
+          chapters.map((c, i) => h('button', {
+            key: c.id,
+            className: 'lh-chapter',
+            style: { animationDelay: (i * 30) + 'ms' },
+            onClick: () => start(c),
+          },
+            h('span', { className: 'lh-badge' }, i),
+            h('span', { className: 'lh-chapter-title' }, `第 ${i} 章 · ${c.title}`),
+            c.completed && h('span', { className: 'lh-tag' }, '已学完'))),
         )
       }
 
       const q = questions[index]
-      const finished = index >= questions.length
-      return h('div', { style: styles.root },
-        h('div', { style: styles.row },
-          h('button', { style: styles.btn, onClick: () => setChapter(null) }, '← 返回'),
-          h('h2', { style: { ...styles.title, margin: 0 } }, `${chapter} 测验`),
-          h('span', { style: styles.muted }, `得分 ${score.right}/${score.total}`)),
+      const finished = questions.length > 0 && index >= questions.length
+      return h('div', { className: 'lh-root' },
+        h('div', { style: { display: 'flex', alignItems: 'center', gap: 10 } },
+          h('button', { className: 'lh-btn', onClick: () => setChapter(null) }, '← 返回'),
+          h('div', { style: { flex: 1 } },
+            h('div', { style: { fontWeight: 650, fontSize: 14 } }, chapter.title),
+            h('div', { className: 'lh-muted' }, `第 ${Math.min(index + 1, questions.length)}/${questions.length} 题 · 得分 ${score.right}/${score.total}`)),
+          h('div', { className: 'lh-dots' },
+            questions.map((_, i) => h('span', { key: i, className: 'lh-dot' + (i === index ? ' lh-dot-on' : '') })))),
         h(ErrorText, { error }),
         finished
-          ? h('div', { style: styles.card },
-              h('div', { style: { fontSize: 15, fontWeight: 600, marginBottom: 6 } },
-                `本章完成：${score.right}/${score.total} 正确`),
-              h('div', { style: styles.muted },
-                score.right === score.total ? '全部答对，可以让导师加深难度了。' : '答错的题已记录到 learning/quiz-log.jsonl，导师会据此调整讲解。'),
-              h('button', { style: { ...styles.btn, marginTop: 8 }, onClick: () => setChapter(null) }, '回到章节选择'))
-          : q && h('div', null,
-              h('div', { style: styles.muted }, `第 ${index + 1}/${questions.length} 题`),
-              h('div', { style: { ...styles.card, marginTop: 6, fontWeight: 600 } }, q.question),
-              q.options.map((opt, i) => h('button', {
-                key: i,
-                style: styles.option({
+          ? h('div', { className: 'lh-card', style: { textAlign: 'center', padding: '22px 16px' } },
+              h(ScoreRing, { right: score.right, total: score.total }),
+              h('div', { style: { fontSize: 15, fontWeight: 650, marginBottom: 6 } },
+                score.right === score.total ? '🏆 满分！' : score.right >= score.total * 0.6 ? '💪 不错，继续巩固' : '📖 建议重读本章'),
+              h('div', { className: 'lh-muted', style: { marginBottom: 14 } },
+                score.right === score.total
+                  ? '全部答对，可以让导师加深难度了。'
+                  : '答错的题已记录到 learning/quiz-log.jsonl，导师会据此调整讲解。'),
+              h('div', { style: { display: 'flex', gap: 8, justifyContent: 'center' } },
+                h('button', { className: 'lh-btn', onClick: () => start(chapter) }, '再做一次'),
+                h('button', { className: 'lh-btn lh-btn-primary', onClick: () => setChapter(null) }, '回到章节选择')))
+          : q && h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+              h('div', { className: 'lh-card', style: { fontWeight: 600, lineHeight: 1.6 } }, q.question),
+              q.options.map((opt, i) => {
+                let cls = 'lh-option'
+                if (feedback) {
+                  if (i === feedback.answer) cls += ' lh-option-correct'
+                  else if (i === picked) cls += ' lh-option-wrong'
+                  else cls += ' lh-option-dim'
+                }
+                return h('button', {
+                  key: i,
+                  className: cls,
+                  style: { animationDelay: (i * 40) + 'ms' },
                   disabled: Boolean(feedback),
-                  correct: Boolean(feedback) && i === feedback.answer,
-                  wrong: Boolean(feedback) && i === picked && !feedback.correct,
-                }),
-                onClick: () => submit(i),
-              }, `${'ABCD'[i]}. ${opt}`)),
-              feedback && h('div', { style: styles.card },
-                h('div', { style: { fontWeight: 700, color: feedback.correct ? '#2da44e' : '#cf222e', marginBottom: 4 } },
+                  onClick: () => submit(i),
+                },
+                  h('span', { className: 'lh-letter' }, 'ABCD'[i]),
+                  h('span', null, opt))
+              }),
+              feedback && h('div', { className: 'lh-feedback' + (feedback.correct ? '' : ' lh-feedback-bad') },
+                h('div', { style: { fontWeight: 700, marginBottom: 5, color: feedback.correct ? '#22a35a' : '#e5484d' } },
                   feedback.correct ? '✓ 回答正确' : '✗ 回答错误'),
-                h('div', null, feedback.explanation),
-                h('button', { style: { ...styles.btn, marginTop: 8 }, onClick: next },
-                  index + 1 < questions.length ? '下一题' : '查看成绩'))),
+                h('div', { style: { lineHeight: 1.65, opacity: 0.9 } }, feedback.explanation),
+                h('button', { className: 'lh-btn lh-btn-primary', style: { marginTop: 10 }, onClick: next },
+                  index + 1 < questions.length ? '下一题 →' : '查看成绩 🎯'))),
       )
     }
 
@@ -254,6 +417,7 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots', 'sidebarRightTabs', 'sidebarRight'],
       apply(ctx) {
+        ensureStyles()
         for (const tab of TABS) {
           ctx.effect(() => ctx.sidebarRightTabs.register({
             id: tab.id,
