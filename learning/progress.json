@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "learnerLevel": null,
+  "chapters": [
+    {
+      "id": "ch00",
+      "title": "什么是 Agent Harness",
+      "completed": false,
+      "knowledgePoints": []
+    },
+    {
+      "id": "ch01",
+      "title": "一切皆插件 + Cordis 基础",
+      "completed": false,
+      "knowledgePoints": []
+    },
+    {
+      "id": "ch02",
+      "title": "核心循环 agent loop",
+      "completed": false,
+      "knowledgePoints": []
+    },
+    {
+      "id": "ch03",
+      "title": "会话与记忆",
+      "completed": false,
+      "knowledgePoints": []
+    },
+    {
+      "id": "ch04",
+      "title": "工具系统",
+      "completed": false,
+      "knowledgePoints": []
+    },
+    {
+      "id": "ch05",
+      "title": "模型适配",
+      "completed": false,
+      "knowledgePoints": []
+    },
+    {
+      "id": "ch06",
+      "title": "插件开发实战",
+      "completed": false,
+      "knowledgePoints": []
+    },
+    {
+      "id": "ch07",
+      "title": "综合练习：用 Harness 改自己",
+      "completed": false,
+      "knowledgePoints": []
+    }
+  ]
+}

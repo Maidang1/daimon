@@ -1,0 +1,41 @@
+[
+  {
+    "id": "ch01-q1",
+    "chapter": "ch01",
+    "question": "在 Cordis 组合里，`ctx.inject('someService')` 的语义是？",
+    "options": [
+      "立即返回服务实例，没有就返回 undefined",
+      "声明依赖：等服务就绪后才以注入了该服务的 ctx 执行回调",
+      "创建一个新服务实例",
+      "把服务注册到全局"
+    ],
+    "answer": 1,
+    "explanation": "inject 是依赖声明 + 回调延迟执行：依赖就绪前回调不运行，这正是 Cordis 管理插件初始化顺序的方式。"
+  },
+  {
+    "id": "ch01-q2",
+    "chapter": "ch01",
+    "question": "cordis.patch.yml 中一条 `- insert:` 补丁的作用是？",
+    "options": [
+      "覆盖同 id 行的 config",
+      "向组合中插入新的插件声明行",
+      "删除一行",
+      "只是注释，无实际作用"
+    ],
+    "answer": 1,
+    "explanation": "insert 插入新行；不带 insert 的 id 行是按 id 覆盖既有行的 config。profile 补丁在所有 bundle 层之后应用。"
+  },
+  {
+    "id": "ch01-q3",
+    "chapter": "ch01",
+    "question": "为什么 dsh-persona 必须挂在 preset 内部而不能全局挂载？",
+    "options": [
+      "全局挂载性能太差",
+      "全局挂载会与提示词注册表自身的 deployment:persona-prefix 注册相撞并报错",
+      "preset 内部有缓存",
+      "只是约定，没有技术原因"
+    ],
+    "answer": 1,
+    "explanation": "persona 行的意义是为某一个 agent 遮蔽部署级人设；全局挂载会与部署级注册冲突，框架会明确报错（见 packages/preset/persona/README.zh.md）。"
+  }
+]

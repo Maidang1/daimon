@@ -1,0 +1,29 @@
+graph TD
+  subgraph 表层 apps/
+    CLI[apps/cli]
+    WEB[apps/web]
+    DESKTOP[apps/desktop]
+  end
+  subgraph 能力层 packages/
+    LOOP[core/agent-loop<br/>核心循环]
+    SESSION[session/*<br/>会话持久化/投影]
+    TOOLS[fs / shell / web ...<br/>工具]
+    LLM[llm/*<br/>模型适配]
+    CLIENT[client/ui-*<br/>Web 界面]
+  end
+  subgraph 基础设施 vendor/
+    CORDIS[cordis<br/>插件/DI 内核]
+    LOADER[loader<br/>YAML 装配]
+  end
+  CLI --> CORDIS
+  WEB --> CORDIS
+  DESKTOP --> CORDIS
+  CORDIS --> LOADER
+  LOADER --> LOOP
+  LOADER --> SESSION
+  LOADER --> TOOLS
+  LOADER --> LLM
+  LOADER --> CLIENT
+  LOOP --> TOOLS
+  LOOP --> LLM
+  LOOP --> SESSION

@@ -1,0 +1,29 @@
+{
+  "name": "@local/dsh-learning-hub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Learning center for DeepSeek Harness: progress tracking, Mermaid architecture diagrams and quizzes in the right sidebar. 用 Harness 学 Harness。",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "vendor/*.js"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
+      ]
+    }
+  }
+}

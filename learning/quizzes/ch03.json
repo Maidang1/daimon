@@ -1,0 +1,28 @@
+[
+  {
+    "id": "ch03-q1",
+    "chapter": "ch03",
+    "question": "session jsonl 里的事件在 resume 时如何变成内存状态？",
+    "options": [
+      "直接 JSON.parse 整个文件",
+      "经 session-projection 把事件流重放/折叠成状态",
+      "模型重新生成",
+      "从 sqlite 读取"
+    ],
+    "answer": 1,
+    "explanation": "projection 把事件序列折叠成当前内存状态；session-projection-cache 缓存中间结果避免每次全量重放。"
+  },
+  {
+    "id": "ch03-q2",
+    "chapter": "ch03",
+    "question": "session-format 存在 v0→v4 迁移链而非直接改格式，原因是？",
+    "options": [
+      "历史包袱，没有原因",
+      "让旧版本写入的会话文件在新版本里仍可打开",
+      "为了加密",
+      "为了压缩体积"
+    ],
+    "answer": 1,
+    "explanation": "格式演进必须向后兼容已落盘的会话；每个 session-format-vN-to-vN+1 包负责一步迁移。"
+  }
+]

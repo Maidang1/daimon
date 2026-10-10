@@ -1,0 +1,28 @@
+[
+  {
+    "id": "ch02-q1",
+    "chapter": "ch02",
+    "question": "agent loop 中一次工具调用发生在哪个层级？",
+    "options": [
+      "turn 之外",
+      "step 之内：一个 step 内模型产出工具调用并执行",
+      "会话恢复时",
+      "压缩时"
+    ],
+    "answer": 1,
+    "explanation": "turn 由若干 step 组成，每个 step 是一次模型流式响应 + 其中的工具调用执行；见 docs/agent-lifecycle.zh.md。"
+  },
+  {
+    "id": "ch02-q2",
+    "chapter": "ch02",
+    "question": "inbox 机制解决的问题是？",
+    "options": [
+      "接收邮件",
+      "在 agent 回合执行中途插入用户新消息并妥善处理",
+      "压缩上下文",
+      "持久化会话"
+    ],
+    "answer": 1,
+    "explanation": "用户在 agent 运行中发的新消息进入 inbox，loop 在 step 边界处理；见 packages/core/agent-loop/src/inbox.ts。"
+  }
+]

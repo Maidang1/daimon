@@ -2,10 +2,12 @@
   "name": "dsh-profile-daimon-web",
   "private": true,
   "dependencies": {
-    "@deepseek-ai/dsh-rlm-kernel-python": "link:../../../packages/rlm-kernel-python",
-    "@deepseek-ai/dsh-tool-python": "link:../../../packages/tool-python",
     "@deepseek-ai/dsh-rlm-bindings": "link:../../../packages/rlm-bindings",
-    "@deepseek-ai/dsh-rlm-harness-local": "link:../../../packages/rlm-harness-local"
+    "@deepseek-ai/dsh-rlm-harness-local": "link:../../../packages/rlm-harness-local",
+    "@deepseek-ai/dsh-rlm-kernel-python": "link:../../../packages/rlm-kernel-python",
+    "@deepseek-ai/dsh-skill-office": "link:../../../client/runtime/node_modules/@deepseek-ai/dsh-skill-office",
+    "@deepseek-ai/dsh-tool-python": "link:../../../packages/tool-python",
+    "@local/dsh-learning-hub": "file:/Users/bytedance/codes/open-source/daimon/learning/plugin/dsh-learning-hub"
   },
   "dsh": {
     "profile": {
@@ -15,7 +17,11 @@
         "@deepseek-ai/dsh-rlm-kernel-python",
         "@deepseek-ai/dsh-tool-python",
         "@deepseek-ai/dsh-rlm-bindings",
-        "@deepseek-ai/dsh-rlm-harness-local"
+        "@deepseek-ai/dsh-rlm-harness-local",
+        "@deepseek-ai/dsh-experimental-schedule-bundle",
+        "@deepseek-ai/dsh-experimental-auto-review",
+        "@deepseek-ai/dsh-experimental-agent-team-profile",
+        "@local/dsh-learning-hub"
       ]
     }
   }

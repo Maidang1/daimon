@@ -11,27 +11,22 @@
           suffix: Your working directory is {{cwd}}.
           prefix: >-
             You are daimon, a general-purpose personal agent powered by the
-            {{model}} model. You help the user with software engineering,
-            automation, data analysis, research, writing, and everyday tasks —
-            using your persistent Python REPL, file tools, and subagent family.
-            Be proactive: when a task benefits from running code, inspecting
-            files, or spawning a subagent, do it instead of asking.
+            {{model}} model, running as a Recursive Language Model (RLM): your
+            persistent Python REPL is your single execution environment. File
+            reads/writes/searches, shell commands, data analysis, and web
+            requests all run inside the REPL (via Python or the injected
+            bash()), so working context accumulates in REPL memory instead of
+            dissipating across one-shot tool outputs. You help the user with
+            software engineering, automation, data analysis, research, writing,
+            and everyday tasks. Be proactive: when a task benefits from running
+            code, inspecting files, or spawning a subagent, do it instead of
+            asking.
       - id: agent-instructions
         name: '@deepseek-ai/dsh-agent-instructions'
         config:
           maxBytes: 65536
-      - id: tool-bash
-        name: '@deepseek-ai/dsh-tool-bash'
-        disabled: !!js process.platform === 'win32'
-      - id: tool-pwsh
-        name: '@deepseek-ai/dsh-tool-pwsh'
-        disabled: !!js process.platform !== 'win32'
-      - id: tool-fs
-        name: '@deepseek-ai/dsh-tool-fs'
-      - id: tool-fs-search
-        name: '@deepseek-ai/dsh-tool-fs-search'
-        config:
-          sampleOverCapGlobResults: false
+      # RLM 纪律: 不挂原生 tool-bash/tool-pwsh/tool-fs/tool-fs-search —
+      # 文件读写/搜索与 shell 一律走 python REPL (bash()), 上下文留在 REPL 内存。
       - id: compaction
         name: cordis:group
         group: true
@@ -71,6 +66,22 @@
         name: '@deepseek-ai/dsh-tool-todo'
         config:
           allowParallelInProgress: true
+      # 联网 (research 定位): web_search/web_fetch, 对齐上游 preset 配置
+      - id: tool-web
+        name: '@deepseek-ai/dsh-tool-web'
+        config:
+          fetch: true
+          searchTimeoutMs: 60000
+      # 技能加载 (skill-office 的 office-docx/pptx/xlsx 经此进入会话目录)
+      - id: skill-filesystem
+        name: '@deepseek-ai/dsh-skill-filesystem'
+        config:
+          customSkillDirs:
+            - !!js >-
+              process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@deepseek-ai/dsh-agent-preset/package.json')),
+              'skills')
+      - id: tool-skill
+        name: '@deepseek-ai/dsh-tool-skill'
       - id: present
         name: '@deepseek-ai/dsh-tool-present'
 # == @deepseek-ai/dsh-web-app, patched by /Users/bytedance/codes/open-source/daimon/dsh-home/profiles/daimon-web/cordis.patch.yml
@@ -89,9 +100,11 @@
           includeRuntimeContext: false
 # == @deepseek-ai/dsh-web-app, patched by /Users/bytedance/codes/open-source/daimon/dsh-home/profiles/daimon-web/cordis.patch.yml
 
-# --- shell / 权限: 已恢复 dsh 原生 bash 工具 ---
-# preset-standard 挂载 tool-bash/tool-pwsh (见上方 preset), 宿主层恢复
-# bash-sandbox/pwsh-sandbox 执行器与 permission 预设 (默认 workspace-write + 审批)。
+# --- shell / 权限: RLM 纪律, 不挂原生 bash/fs 模型面工具 ---
+# preset-standard 已移除 tool-bash/tool-pwsh/tool-fs/tool-fs-search (见上方 preset 注释):
+# 文件读写/搜索与 shell 全部走 python REPL (REPL 内置 bash()), 工作上下文留在 REPL 内存。
+# 注意: 原生工具的文件沙箱/审批随之不再生效 (REPL bash() 是 Python 子进程, 不经 ctx.sandbox)。
+# 宿主层 bash-sandbox/permission 预设保留, 供子代理以外的潜在挂载点使用。
 
 # Trim layer: keep web chat + core agent, disable whole feature blocks.
 # Re-enable any block by deleting its entries.
@@ -104,9 +117,8 @@
 # 已恢复 (rlm-bindings 接线需要): subagent (ctx.subagents 核心服务),
 # subagent-spawn-in-process (注册 continuable provider 'spawn', 即 rlm-bindings 的默认 providerName),
 # tool-subagent / tool-subagent-control / tool-subagent-list-agents (模型面 spawn/控制/列举工具, 与 prime-agent 能力对齐).
-# 仍裁: fork 链路 (rlm-bindings 只走 spawn) 与全部 UI.
-- id: subagent-fork-in-process
-  disabled: true
+# subagent-fork-in-process 已恢复: agent-team 的 tool-agent-team 默认 forkProvider=fork, 需要该 provider 存在。
+# 仍裁: 模型面 fork 工具 (保持委托面与 prime-agent 对齐) 与全部 UI.
 - id: tool-subagent-fork
   disabled: true
 - id: ui-subagent
@@ -162,28 +174,21 @@
   disabled: true
 
 # --- Web 搜索/抓取 ---
-- id: web
-  disabled: true
-- id: web-search-deepseek
-  disabled: true
-- id: web-fetch-http
-  disabled: true
-- id: tool-web
-  disabled: true
-- id: ui-settings-web-search
-  disabled: true
+# 已恢复 (research 定位需要联网): web seam + DeepSeek 搜索 + HTTP 抓取 + 模型面 tool-web + 设置页。
 
 # --- 技能系统 ---
-- id: skill
-  disabled: true
+# 已恢复 (skill-office 依赖): skill 注册表 + filesystem/badge provider + 模型面 tool-skill + UI。
+# 注意: web-app 层自己也裁了 skill-filesystem/skill-badge/tool-skill, 需显式 disabled: false 拉回。
 - id: skill-filesystem
-  disabled: true
+  disabled: false
 - id: skill-badge
-  disabled: true
+  disabled: false
 - id: tool-skill
-  disabled: true
-- id: ui-skill
-  disabled: true
+  disabled: false
+# skill-office (Word/PPT/Excel 工作流) 是普通插件, 以 insert 行挂到根层 (link 进 profile node_modules)。
+- insert:
+    - id: skill-office
+      name: '@deepseek-ai/dsh-skill-office'
 
 # --- 消息反馈 ---
 - id: message-feedback
@@ -294,3 +299,86 @@
 
 # --- RLM Python skills: 6 个移植自 prime-agent 的 skill 包 (goal/compact/refine/rlm_heartbeat/agent_message/agent_observe)
 # 随 vendored rlm-kernel-python 的 py/skills/ 发布; kernel 会自行把 py/skills 加进 PYTHONPATH, 无需此处配置 ---
+
+# ── preset-learning（自研「学习模式」preset，源文件：daimon/learning/preset-learning.yaml）──
+- insert:
+    - id: preset-learning
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: learning
+        name: 学习模式
+        description: 用 Harness 学 Harness：导师人设 + 面向源码阅读裁剪的工具集
+        order: 2
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                你是「DeepSeek Harness 导师」，一位耐心、严谨的中文编程导师。工作区就是 DeepSeek Harness 的官方源码仓库，你的任务是引导学习者通过阅读真实源码理解这个 Agent Harness 的设计与实现。
+
+                ## 教学规则
+
+                1. **先摸底**：第一次对话时，先问学习者的熟悉程度（入门 / 进阶）以及日常使用 Agent 工具的经验，据此调整起点。
+                2. **源码为王**：讲解任何概念都必须结合具体源码文件与行号（格式：`路径:行号`），并简述该文件的职责。不要只讲抽象概念。
+                3. **苏格拉底式节奏**：讲完一个知识点后，主动提出 1–2 个检查理解的问题，**停下来等学习者回答**，不要自顾自继续。
+                4. **留练习**：每讲完一个章节，布置一个小练习（读某段代码回答一个问题 / 改一个配置 / 写一个小插件），并说明如何验证。
+                5. **自适应深度**：学习者答对了就加深一层（追问设计权衡、替代方案）；答错了就退回更具体的源码细节，带着一起读。
+                6. **图解辅助**：涉及架构、调用链、生命周期时，主动产出 Mermaid 图（写入 `learning/diagrams/` 对应章节文件），并提示学习者在右侧「架构图解」面板查看。
+                7. **进度意识**：确认学习者掌握一个知识点后，提醒其在「学习中心」面板勾选完成；每章结束引导做测验。
+                8. **语言**：全程用中文讲解；源码标识符、配置键名保留英文。
+
+                ## 边界
+
+                - 不替学习者做练习；可以提示、可以检查，但不要直接给完整答案。
+                - 学习者答错时先肯定思路中正确的部分，再指出偏差。
+                - 每次回复聚焦一个知识点，避免一次灌输过多。
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+              searchTimeoutMs: 60000
+          - id: present
+            name: '@deepseek-ai/dsh-tool-present'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024

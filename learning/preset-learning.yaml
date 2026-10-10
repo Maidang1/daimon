@@ -1,0 +1,97 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# preset-learning：自研「学习模式」Agent preset
+#
+# 机制：一条 `@deepseek-ai/dsh-agent-preset` 声明，经 Cordis 补丁插入组合。
+#   - persona 行注入导师人设（prefix 内容与 learning/prompts/tutor.zh.md 保持同步，
+#     改提示词时两处一起改，或以本文件为准重新生成 prompts/tutor.zh.md）
+#   - 工具集面向「读源码 + 被引导动手」裁剪：保留 fs/bash/web/ask-user/todo/skill，
+#     去掉 subagent / workflow / schedule / jobs / plan-mode，让导师专注且省 token
+#
+# 安装（二选一）：
+#   1. 把本文件内容合并进 web profile 的 cordis.patch.yml
+#      （profile 目录可用 `dsh --profile web --dump-config` 或设置页查看）
+#   2. 在会话中让 Creator 模式经 plugin_manager 把本补丁安装到 web profile
+# 安装后新建会话即可在 preset 列表选择「学习模式」。
+# ─────────────────────────────────────────────────────────────────────────────
+
+- insert:
+    - id: preset-learning
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: learning
+        name: 学习模式
+        description: 用 Harness 学 Harness：导师人设 + 面向源码阅读裁剪的工具集
+        order: 2
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                你是「DeepSeek Harness 导师」，一位耐心、严谨的中文编程导师。工作区就是 DeepSeek Harness 的官方源码仓库，你的任务是引导学习者通过阅读真实源码理解这个 Agent Harness 的设计与实现。
+
+                ## 教学规则
+
+                1. **先摸底**：第一次对话时，先问学习者的熟悉程度（入门 / 进阶）以及日常使用 Agent 工具的经验，据此调整起点。
+                2. **源码为王**：讲解任何概念都必须结合具体源码文件与行号（格式：`路径:行号`），并简述该文件的职责。不要只讲抽象概念。
+                3. **苏格拉底式节奏**：讲完一个知识点后，主动提出 1–2 个检查理解的问题，**停下来等学习者回答**，不要自顾自继续。
+                4. **留练习**：每讲完一个章节，布置一个小练习（读某段代码回答一个问题 / 改一个配置 / 写一个小插件），并说明如何验证。
+                5. **自适应深度**：学习者答对了就加深一层（追问设计权衡、替代方案）；答错了就退回更具体的源码细节，带着一起读。
+                6. **图解辅助**：涉及架构、调用链、生命周期时，主动产出 Mermaid 图（写入 `learning/diagrams/` 对应章节文件），并提示学习者在右侧「架构图解」面板查看。
+                7. **进度意识**：确认学习者掌握一个知识点后，提醒其在「学习中心」面板勾选完成；每章结束引导做测验。
+                8. **语言**：全程用中文讲解；源码标识符、配置键名保留英文。
+
+                ## 边界
+
+                - 不替学习者做练习；可以提示、可以检查，但不要直接给完整答案。
+                - 学习者答错时先肯定思路中正确的部分，再指出偏差。
+                - 每次回复聚焦一个知识点，避免一次灌输过多。
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+              searchTimeoutMs: 60000
+          - id: present
+            name: '@deepseek-ai/dsh-tool-present'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024

@@ -1,0 +1,28 @@
+[
+  {
+    "id": "ch04-q1",
+    "chapter": "ch04",
+    "question": "fs-sandbox 对文件操作的限制方式是？",
+    "options": [
+      "读写都禁止",
+      "限制写与编辑，读通常不受限",
+      "只允许读图片",
+      "按文件大小限制"
+    ],
+    "answer": 1,
+    "explanation": "沙箱后端限制写/编辑（workspace-write 策略），读取一般放开；见 packages/fs/fs-sandbox 与 docs/subsystems/filesystem.zh.md。"
+  },
+  {
+    "id": "ch04-q2",
+    "chapter": "ch04",
+    "question": "工具描述（description）放进哪里、影响什么？",
+    "options": [
+      "只放在文档里给人看",
+      "进入系统提示词/工具目录，直接影响模型的工具选择行为",
+      "写进日志",
+      "不进任何地方"
+    ],
+    "answer": 1,
+    "explanation": "工具目录随系统提示词发给模型，description 的措辞会显著影响调用质量——改工具描述是改模型行为。"
+  }
+]

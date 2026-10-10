@@ -1,0 +1,28 @@
+[
+  {
+    "id": "ch05-q1",
+    "chapter": "ch05",
+    "question": "要接入一个新的 OpenAI 兼容端点，最优先看哪个包？",
+    "options": [
+      "packages/fs",
+      "packages/llm/llm-pi-ai（多提供方适配）",
+      "packages/shell",
+      "vendor/cordis"
+    ],
+    "answer": 1,
+    "explanation": "llm-pi-ai 承载多提供方配置（baseURL/apiKeyEnv/models），Settings → Models 的自定义端点最终落到这一层。"
+  },
+  {
+    "id": "ch05-q2",
+    "chapter": "ch05",
+    "question": "llm-retry 与 token-meter 分别负责什么？",
+    "options": [
+      "都负责计费",
+      "失败重试策略 / token 用量计量",
+      "都负责压缩",
+      "模型下载 / 模型卸载"
+    ],
+    "answer": 1,
+    "explanation": "见 packages/llm/llm-retry 与 packages/llm/token-meter。"
+  }
+]

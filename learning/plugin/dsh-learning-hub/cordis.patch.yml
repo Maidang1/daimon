@@ -1,0 +1,8 @@
+# dsh-learning-hub：把学习中心插件挂进组合。
+# root 指向课程内容目录（含 chapters/ quizzes/ diagrams/ progress.json），
+# 安装时按实际 checkout 位置调整。
+- insert:
+    - id: learning-hub
+      name: '@local/dsh-learning-hub'
+      config:
+        root: /Users/bytedance/codes/open-source/daimon/learning

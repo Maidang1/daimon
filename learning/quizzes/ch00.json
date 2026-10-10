@@ -1,0 +1,41 @@
+[
+  {
+    "id": "ch00-q1",
+    "chapter": "ch00",
+    "question": "DSH 中「表层（surface）」指的是哪一层？",
+    "options": [
+      "vendor/ 里的 Cordis 内核",
+      "apps/ 里的 cli / web / desktop 等用户入口",
+      "packages/session/ 里的会话持久化",
+      "packages/llm/ 里的模型适配"
+    ],
+    "answer": 1,
+    "explanation": "apps/ 是表层：cli、web、desktop 只是不同的「壳」，共享同一套 packages 能力。这正是「换 UI 不换大脑」的含义。"
+  },
+  {
+    "id": "ch00-q2",
+    "chapter": "ch00",
+    "question": "一个 Agent preset（如 standard）本质上是什么？",
+    "options": [
+      "一个独立的可执行程序",
+      "一份写死在二进制里的配置",
+      "一张 Cordis 插件声明清单（YAML），决定会话挂哪些工具和提示词",
+      "一个模型参数预设（温度、最大 token 等）"
+    ],
+    "answer": 2,
+    "explanation": "preset 就是 `@deepseek-ai/dsh-agent-preset` 的一行 YAML 声明，plugins 列表决定该会话的工具与人设，见 packages/bundle/web-app/presets/standard.patch.yml。"
+  },
+  {
+    "id": "ch00-q3",
+    "chapter": "ch00",
+    "question": "和裸调 LLM Messages API 相比，Agent Harness 额外提供的最关键能力组合是？",
+    "options": [
+      "更快的模型推理速度",
+      "工具调用循环 + 会话持久化 + 权限控制 + 插件装配",
+      "免费使用模型",
+      "自动编写全部代码，无需人工参与"
+    ],
+    "answer": 1,
+    "explanation": "Harness 的价值在模型之外：agent loop、工具系统、会话落盘与恢复、审批与沙箱、插件化装配——这些都是裸 API 没有的。"
+  }
+]

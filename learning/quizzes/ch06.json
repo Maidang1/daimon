@@ -1,0 +1,28 @@
+[
+  {
+    "id": "ch06-q1",
+    "chapter": "ch06",
+    "question": "dsh-learning-hub 的 client.js factory 为什么不能带副作用？",
+    "options": [
+      "会导致内存泄漏",
+      "factory 只负责注册/声明，副作用须放进 apply 并用 ctx.effect 管理生命周期，否则插件卸载时无法清理",
+      "浏览器不允许",
+      "没有原因"
+    ],
+    "answer": 1,
+    "explanation": "ui-plugin.md 明确要求：factory 无副作用；样式/监听器/定时器在 apply 里经 ctx.effect 注册并返回清理函数，保证 HMR/卸载干净。"
+  },
+  {
+    "id": "ch06-q2",
+    "chapter": "ch06",
+    "question": "host 半 HTTP 路由对文件路径做 confinement 的根本原因是？",
+    "options": [
+      "性能优化",
+      "webserver 不提供服务器级认证，自定义路由必须自己守住边界，防止路径穿越读写任意文件",
+      "为了缓存",
+      "为了好看"
+    ],
+    "answer": 1,
+    "explanation": "dsh-host-webserver 明确不管认证；route owner 自负请求策略。learning-hub 因此把读写严格限制在 learning/ 根内并拒绝 '..' 与非法字符。"
+  }
+]

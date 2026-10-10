@@ -1,0 +1,16 @@
+sequenceDiagram
+  participant U as 用户
+  participant A as agent.ts
+  participant S as assistant-stream.ts
+  participant T as tool-calls.ts
+  participant I as inbox.ts
+  U->>A: 发消息（开始 turn）
+  loop 每个 step
+    A->>S: 发起模型流式响应
+    S->>T: 检出工具调用
+    T-->>S: 工具结果
+    S-->>A: step 完成
+    A->>I: step 边界检查 inbox
+    I-->>A: 无新消息/有新消息
+  end
+  A-->>U: turn 结束（最终回复）
