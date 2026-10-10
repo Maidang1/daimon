@@ -10,7 +10,7 @@
       "packages/llm/ 里的模型适配"
     ],
     "answer": 1,
-    "explanation": "apps/ 是表层：cli、web、desktop 只是不同的「壳」，共享同一套 packages 能力。这正是「换 UI 不换大脑」的含义。"
+    "explanation": "apps/ 是表层：cli、web、desktop 只是不同的「壳」，共享同一套 packages 能力——这就是「换 UI 不换大脑」。见 docs/architecture.zh.md。"
   },
   {
     "id": "ch00-q2",
@@ -23,19 +23,58 @@
       "一个模型参数预设（温度、最大 token 等）"
     ],
     "answer": 2,
-    "explanation": "preset 就是 `@deepseek-ai/dsh-agent-preset` 的一行 YAML 声明，plugins 列表决定该会话的工具与人设，见 packages/bundle/web-app/presets/standard.patch.yml。"
+    "explanation": "preset 就是一行 `@deepseek-ai/dsh-agent-preset` 的 YAML 声明，plugins 列表决定工具与人设，见 packages/bundle/web-app/presets/standard.patch.yml:1。"
   },
   {
     "id": "ch00-q3",
     "chapter": "ch00",
-    "question": "和裸调 LLM Messages API 相比，Agent Harness 额外提供的最关键能力组合是？",
+    "question": "关于「一切皆插件」，下列哪项**不**是插件？",
     "options": [
-      "更快的模型推理速度",
-      "工具调用循环 + 会话持久化 + 权限控制 + 插件装配",
-      "免费使用模型",
-      "自动编写全部代码，无需人工参与"
+      "模型适配器",
+      "agent loop（核心循环）",
+      "会话日志",
+      "Cordis 内核本身"
+    ],
+    "answer": 3,
+    "explanation": "architecture.zh.md:9 明确说连 agent loop 都是插件；Cordis 是承载插件的底层框架（vendor/ 地基），不是插件。"
+  },
+  {
+    "id": "ch00-q4",
+    "chapter": "ch00",
+    "question": "profile 启动配置树的叠加顺序是？",
+    "options": [
+      "--patch → cordis.patch.yml → bundle patch → bundle 列表",
+      "bundle 列表 → bundle patch → cordis.patch.yml → --patch",
+      "cordis.patch.yml → bundle 列表 → bundle patch → --patch",
+      "bundle patch → bundle 列表 → --patch → cordis.patch.yml"
     ],
     "answer": 1,
-    "explanation": "Harness 的价值在模型之外：agent loop、工具系统、会话落盘与恢复、审批与沙箱、插件化装配——这些都是裸 API 没有的。"
+    "explanation": "各层依次应用在空列表之上：profile 的有序 bundle → bundle 自带 patch → profile 的 cordis.patch.yml → --patch overlay。越靠后的层优先级越高。"
+  },
+  {
+    "id": "ch00-q5",
+    "chapter": "ch00",
+    "question": "一个「步骤（step）」的官方定义是？",
+    "options": [
+      "一次用户按键到屏幕刷新",
+      "一次模型请求加上它调用的工具",
+      "一条会话事件从产生到落盘",
+      "一次工具从审批到执行完成"
+    ],
+    "answer": 1,
+    "explanation": "architecture.zh.md:85：一个步骤是一次模型请求加上它调用的工具；一个轮次（turn）包含零个或多个步骤，不再欠工作时关闭。"
+  },
+  {
+    "id": "ch00-q6",
+    "chapter": "ch00",
+    "question": "构建报 MISSING_EXPORT 且引用的源码里根本找不到那个符号，最可能的原因是？",
+    "options": [
+      "node 版本太低",
+      "已删除包的旧 lib/ 产物残留（僵尸目录）被构建系统当成入口",
+      "pnpm 缓存损坏",
+      "TypeScript 版本不兼容"
+    ],
+    "answer": 1,
+    "explanation": "packages/*/* 通配会发现不带 package.json 的残留目录。排查口诀：for d in packages/*/*/; do [ ! -f \"$d/package.json\" ] && echo \"$d\"; done。这是本课程环境搭建时的真实案例。"
   }
 ]

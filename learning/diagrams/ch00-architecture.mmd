@@ -1,29 +1,40 @@
+%% 第 0 章 · DSH 全景架构（三层 + 装配）
 graph TD
-  subgraph 表层 apps/
-    CLI[apps/cli]
-    WEB[apps/web]
-    DESKTOP[apps/desktop]
+  subgraph SURFACE["表层 apps/（换 UI 不换大脑）"]
+    CLI["apps/cli<br/>终端入口 bin.ts"]
+    WEB["apps/web<br/>Web 前端"]
+    DESKTOP["apps/desktop<br/>Electron 桌面"]
   end
-  subgraph 能力层 packages/
-    LOOP[core/agent-loop<br/>核心循环]
-    SESSION[session/*<br/>会话持久化/投影]
-    TOOLS[fs / shell / web ...<br/>工具]
-    LLM[llm/*<br/>模型适配]
-    CLIENT[client/ui-*<br/>Web 界面]
+
+  subgraph CAP["能力层 packages/（331 个包按域分组）"]
+    LOOP["core/agent-loop<br/>核心循环（也是插件！）"]
+    SESSION["session/*<br/>会话事件日志·持久化·投影"]
+    TOOLS["core/tools + fs/shell/web...<br/>工具注册表与执行管线"]
+    LLM["llm/*<br/>模型适配 seam"]
+    CLIENT["client/*<br/>Web 客户端插件体系"]
   end
-  subgraph 基础设施 vendor/
-    CORDIS[cordis<br/>插件/DI 内核]
-    LOADER[loader<br/>YAML 装配]
+
+  subgraph BASE["地基 vendor/"]
+    CORDIS["cordis<br/>DI / 插件内核"]
   end
-  CLI --> CORDIS
-  WEB --> CORDIS
-  DESKTOP --> CORDIS
-  CORDIS --> LOADER
-  LOADER --> LOOP
-  LOADER --> SESSION
-  LOADER --> TOOLS
-  LOADER --> LLM
-  LOADER --> CLIENT
-  LOOP --> TOOLS
-  LOOP --> LLM
-  LOOP --> SESSION
+
+  subgraph BOOT["启动装配（按序叠加 patch）"]
+    B1["① profile 的有序 bundle 列表<br/>dsh.profile.bundles"]
+    B2["② bundle 自带 patch<br/>dsh.bundle.patch"]
+    B3["③ profile cordis.patch.yml<br/>（用户覆盖层）"]
+    B4["④ --patch 命令行 overlay"]
+    B1 --> B2 --> B3 --> B4
+  end
+
+  CLI --> BOOT
+  WEB --> BOOT
+  DESKTOP --> BOOT
+  BOOT -->|生成插件树| CORDIS
+  CORDIS -->|激活| LOOP
+  CORDIS -->|激活| SESSION
+  CORDIS -->|激活| TOOLS
+  CORDIS -->|激活| LLM
+  CORDIS -->|激活| CLIENT
+  LOOP -->|tool_use| TOOLS
+  LOOP -->|流式请求| LLM
+  LOOP -->|事件落盘| SESSION

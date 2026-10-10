@@ -4,7 +4,7 @@
   "chapters": [
     {
       "id": "ch00",
-      "title": "什么是 Agent Harness",
+      "title": "什么是 Agent Harness（精品版）",
       "completed": false,
       "knowledgePoints": []
     },
@@ -28,13 +28,13 @@
     },
     {
       "id": "ch04",
-      "title": "工具系统",
+      "title": "工具系统与权限",
       "completed": false,
       "knowledgePoints": []
     },
     {
       "id": "ch05",
-      "title": "模型适配",
+      "title": "模型适配与 LLM 层",
       "completed": false,
       "knowledgePoints": []
     },
